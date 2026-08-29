@@ -191,5 +191,70 @@ app.get('/api/profile/:id', async (req, res) => {
   }
 });
 
+
+// ---------------------------------------------------------
+// API 3: ดึงข้อมูลการ์ดย่อย (Dynamic Details) ที่ยังไม่ถูกลบ
+// ---------------------------------------------------------
+app.get('/api/profile/:userId/details', async (req, res) => {
+    try {
+        const { userId } = req.params;
+        const query = `SELECT * FROM user_details WHERE user_id = $1 AND is_active = 1 ORDER BY created_at DESC`;
+        const { rows } = await pool.query(query, [userId]);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------------------------------------------------------
+// API 4: บันทึกข้อมูลการ์ดย่อย พร้อมระบบตรวจสอบซ้ำ (Unique & Duplicate)
+// ---------------------------------------------------------
+app.post('/api/profile/details', async (req, res) => {
+    try {
+        const { userId, type, title, subtitle, desc } = req.body;
+        
+        // 1. ตรวจสอบเงื่อนไข Unique (เช่น ที่อยู่ หรือ สุขภาพ มีได้แค่ 1 อัน)
+        const uniqueTypes = ['address', 'health'];
+        if (uniqueTypes.includes(type)) {
+            const checkUnique = await pool.query(`SELECT id FROM user_details WHERE user_id = $1 AND type = $2 AND is_active = 1`, [userId, type]);
+            if (checkUnique.rows.length > 0) {
+                return res.status(400).json({ error: 'ข้อมูลประเภทนี้มีอยู่แล้วในระบบ (ไม่อนุญาตให้ซ้ำ)' });
+            }
+        }
+
+        // 2. ตรวจสอบ Duplicate (ห้ามพิมพ์ Title เหมือนกันในหมวดเดียวกัน)
+        const checkDuplicate = await pool.query(
+            `SELECT id FROM user_details WHERE user_id = $1 AND type = $2 AND LOWER(title) = LOWER($3) AND is_active = 1`, 
+            [userId, type, title]
+        );
+        if (checkDuplicate.rows.length > 0) {
+            return res.status(400).json({ error: `มีข้อมูล "${title}" ในระบบแล้ว` });
+        }
+
+        const insertQuery = `
+            INSERT INTO user_details (user_id, type, title, subtitle, description) 
+            VALUES ($1, $2, $3, $4, $5) RETURNING *
+        `;
+        const { rows } = await pool.query(insertQuery, [userId, type, title, subtitle, desc]);
+        res.status(201).json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// ---------------------------------------------------------
+// API 5: ลบข้อมูลการ์ดย่อยแบบ Soft Delete (เปลี่ยน is_active = 0)
+// ---------------------------------------------------------
+app.put('/api/profile/details/:id/delete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = `UPDATE user_details SET is_active = 0, deleted_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`;
+        const { rows } = await pool.query(query, [id]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
