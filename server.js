@@ -108,10 +108,11 @@ app.post('/api/register/basic', async (req, res) => {
       [newUserId, password]
     );
 
-    // 3. (ส่วนที่เพิ่มเข้ามา) สร้างข้อมูลตั้งต้นในตาราง "users" เพื่อไม่ให้หน้า Profile โหลดค้าง
+    // 3. สร้างข้อมูลตั้งต้นในตาราง "users" พร้อมกับสร้าง global_id ชั่วคราว
+    const tempGlobalId = `PENDING-${newUserId}`;
     await pool.query(
-      `INSERT INTO users (id, username) VALUES ($1, $2)`, 
-      [newUserId, username]
+      `INSERT INTO users (id, username, global_id) VALUES ($1, $2, $3)`, 
+      [newUserId, username, tempGlobalId]
     );
 
     await pool.query('COMMIT');
