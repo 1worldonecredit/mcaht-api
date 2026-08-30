@@ -81,7 +81,6 @@ function calculateDetailedAge(startDate) {
   return { years, months, days };
 }
 
-
 // API: ลงทะเบียนบัญชีพื้นฐาน (สร้างเฉพาะ ID โดยที่ global_id ยังเป็น NULL)
 app.post('/api/register/basic', async (req, res) => {
   const { username, password } = req.body;
@@ -93,7 +92,7 @@ app.post('/api/register/basic', async (req, res) => {
       return res.status(400).json({ success: false, message: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
     }
 
-    // 2. ใช้ Transaction บันทึกลง 2 ตารางพร้อมกัน (ป้องกันข้อมูลพังถ้าตารางใดตารางหนึ่ง Error)
+    // 2. ใช้ Transaction บันทึกลงตารางที่เกี่ยวข้องพร้อมกัน (ป้องกันข้อมูลพังถ้ามี Error)
     await pool.query('BEGIN');
 
     // Insert ลง users_core
@@ -107,6 +106,12 @@ app.post('/api/register/basic', async (req, res) => {
     await pool.query(
       `INSERT INTO user_auth (user_id, auth_type, auth_data) VALUES ($1, 'password', $2)`,
       [newUserId, password]
+    );
+
+    // 3. (ส่วนที่เพิ่มเข้ามา) สร้างโปรไฟล์ตั้งต้น เพื่อไม่ให้หน้า Profile โหลดค้าง
+    await pool.query(
+      `INSERT INTO user_profiles (user_id) VALUES ($1)`, 
+      [newUserId]
     );
 
     await pool.query('COMMIT');
