@@ -108,12 +108,11 @@ app.post('/api/register/basic', async (req, res) => {
       [newUserId, password]
     );
 
-    // 3. (ส่วนที่เพิ่มเข้ามา) สร้างโปรไฟล์ตั้งต้น เพื่อไม่ให้หน้า Profile โหลดค้าง
-   // ต้องเป็น user_profile (ไม่มี s)
+    // 3. (ส่วนที่เพิ่มเข้ามา) สร้างข้อมูลตั้งต้นในตาราง "users" เพื่อไม่ให้หน้า Profile โหลดค้าง
     await pool.query(
-      `INSERT INTO user_profile (user_id) VALUES ($1)`, 
-      [newUserId]
-      );
+      `INSERT INTO users (id, username) VALUES ($1, $2)`, 
+      [newUserId, username]
+    );
 
     await pool.query('COMMIT');
     res.json({ success: true, message: 'สร้างบัญชีเริ่มต้นสำเร็จ', userId: newUserId });
