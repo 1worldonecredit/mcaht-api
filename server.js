@@ -108,11 +108,13 @@ app.post('/api/register/basic', async (req, res) => {
       [newUserId, password]
     );
 
-    // 3. สร้างข้อมูลตั้งต้นในตาราง "users" พร้อมกับสร้าง global_id ชั่วคราว
+// 3. สร้างข้อมูลตั้งต้นในตาราง "users" พร้อมเติมค่าชั่วคราวให้คอลัมน์ที่ห้ามว่าง
     const tempGlobalId = `PENDING-${newUserId}`;
+    const tempPhone = '-'; // ใส่เครื่องหมายขีด (หรือเบอร์สมมติ) ให้ผ่านเงื่อนไข NOT NULL
+    
     await pool.query(
-      `INSERT INTO users (id, username, global_id) VALUES ($1, $2, $3)`, 
-      [newUserId, username, tempGlobalId]
+      `INSERT INTO users (id, username, global_id, phone) VALUES ($1, $2, $3, $4)`, 
+      [newUserId, username, tempGlobalId, tempPhone]
     );
 
     await pool.query('COMMIT');
