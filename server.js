@@ -118,7 +118,36 @@ app.post('/api/register/basic', async (req, res) => {
   }
 });
 
+// API: เข้าสู่ระบบ (Login)
+app.post('/api/login', async (req, res) => {
+  const { username, password } = req.body;
 
+  try {
+    // ดึงข้อมูล user และรหัสผ่านจาก 2 ตารางมาเช็ค
+    const userQuery = await pool.query(`
+      SELECT c.id, a.auth_data 
+      FROM users_core c 
+      JOIN user_auth a ON c.id = a.user_id 
+      WHERE c.username = $1 AND a.auth_type = 'password'
+    `, [username]);
+
+    if (userQuery.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'ไม่พบชื่อผู้ใช้นี้ในระบบ' });
+    }
+
+    // เทียบรหัสผ่าน (ระบบจริงควรใช้ bcrypt.compare)
+    const storedPassword = userQuery.rows[0].auth_data;
+    if (password !== storedPassword) {
+      return res.status(400).json({ success: false, message: 'รหัสผ่านไม่ถูกต้อง' });
+    }
+
+    res.json({ success: true, message: 'เข้าสู่ระบบสำเร็จ', userId: userQuery.rows[0].id });
+
+  } catch (error) {
+    console.error('Login Error:', error);
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเข้าสู่ระบบได้' });
+  }
+});
 // ---------------------------------------------------------
 // API 2: ดึงข้อมูลหน้า Profile (คำนวณ Level, อายุ และดึงข้อมูลหลายตาราง)
 // ---------------------------------------------------------
