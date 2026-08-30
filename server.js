@@ -148,6 +148,44 @@ app.post('/api/login', async (req, res) => {
     res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเข้าสู่ระบบได้' });
   }
 });
+
+// ---------------------------------------------------------
+// API: เปลี่ยนรหัสผ่าน (Change Password)
+// ---------------------------------------------------------
+app.post('/api/profile/change-password', async (req, res) => {
+  const { userId, oldPassword, newPassword } = req.body;
+
+  try {
+    // 1. ดึงรหัสผ่านเดิมจากฐานข้อมูลมาเช็คก่อน
+    const userQuery = await pool.query(
+      `SELECT auth_data FROM user_auth WHERE user_id = $1 AND auth_type = 'password'`,
+      [userId]
+    );
+
+    if (userQuery.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'ไม่พบบัญชีผู้ใช้' });
+    }
+
+    const currentPassword = userQuery.rows[0].auth_data;
+    
+    // 2. ถ้ารหัสผ่านเดิมผิด ให้เตะกลับ
+    if (currentPassword !== oldPassword) {
+      return res.status(400).json({ success: false, message: 'รหัสผ่านปัจจุบันไม่ถูกต้อง' });
+    }
+
+    // 3. ถ้ารหัสผ่านเดิมถูก ให้อัปเดตเป็นรหัสผ่านใหม่
+    await pool.query(
+      `UPDATE user_auth SET auth_data = $1 WHERE user_id = $2 AND auth_type = 'password'`,
+      [newPassword, userId]
+    );
+
+    res.json({ success: true, message: 'เปลี่ยนรหัสผ่านสำเร็จ' });
+
+  } catch (error) {
+    console.error('Change Password Error:', error);
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเปลี่ยนรหัสผ่านได้' });
+  }
+});
 // ---------------------------------------------------------
 // API 2: ดึงข้อมูลหน้า Profile (คำนวณ Level, อายุ และดึงข้อมูลหลายตาราง)
 // ---------------------------------------------------------
