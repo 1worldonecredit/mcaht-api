@@ -110,11 +110,12 @@ app.post('/api/register/basic', async (req, res) => {
 
 // 3. สร้างข้อมูลตั้งต้นในตาราง "users" พร้อมเติมค่าชั่วคราวให้คอลัมน์ที่ห้ามว่าง
     const tempGlobalId = `PENDING-${newUserId}`;
-    const tempPhone = '-'; // ใส่เครื่องหมายขีด (หรือเบอร์สมมติ) ให้ผ่านเงื่อนไข NOT NULL
+    const tempPhone = '-'; 
+    const tempDateOfBirth = '2000-01-01'; // เพิ่มวันเกิดชั่วคราว (ปี-เดือน-วัน)
     
     await pool.query(
-      `INSERT INTO users (id, username, global_id, phone) VALUES ($1, $2, $3, $4)`, 
-      [newUserId, username, tempGlobalId, tempPhone]
+      `INSERT INTO users (id, username, global_id, phone, date_of_birth) VALUES ($1, $2, $3, $4, $5)`, 
+      [newUserId, username, tempGlobalId, tempPhone, tempDateOfBirth]
     );
 
     await pool.query('COMMIT');
