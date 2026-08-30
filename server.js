@@ -80,35 +80,44 @@ function calculateDetailedAge(startDate) {
   return { years, months, days };
 }
 
-// ---------------------------------------------------------
-// API 1: จำลองการสร้างผู้ใช้งานใหม่ (Register)
-// ---------------------------------------------------------
-app.post('/api/register', async (req, res) => {
-  const { username, phone, birthYear, birthMonth, birthDay, gender, religion, countryCode, regionCode, referrerId } = req.body;
+
+// API: ลงทะเบียนบัญชีพื้นฐาน (สร้างเฉพาะ ID โดยที่ global_id ยังเป็น NULL)
+app.post('/api/register/basic', async (req, res) => {
+  const { username, password } = req.body;
 
   try {
-    // 1. สร้าง Global ID
-    const globalId = generateGlobalId({
-      countryCode, birthYear, gender, religion, regionCode
-    });
+    // 1. เช็คว่ามี Username นี้ในตาราง users_core หรือยัง
+    const checkUser = await pool.query('SELECT id FROM users_core WHERE username = $1', [username]);
+    if (checkUser.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
+    }
 
-    const dateOfBirth = `${birthYear}-${birthMonth.toString().padStart(2, '0')}-${birthDay.toString().padStart(2, '0')}`;
+    // 2. ใช้ Transaction บันทึกลง 2 ตารางพร้อมกัน (ป้องกันข้อมูลพังถ้าตารางใดตารางหนึ่ง Error)
+    await pool.query('BEGIN');
 
-    // 2. บันทึกลงฐานข้อมูล
-    const insertQuery = `
-      INSERT INTO users (global_id, username, phone, date_of_birth, gender, religion, country_code, region_code, referrer_id)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *;
-    `;
-    const values = [globalId, username, phone, dateOfBirth, gender, religion, countryCode, regionCode, referrerId || null];
-    
-    const result = await pool.query(insertQuery, values);
-    res.json({ success: true, message: 'ลงทะเบียนสำเร็จ', user: result.rows[0] });
+    // Insert ลง users_core
+    const coreResult = await pool.query(
+      `INSERT INTO users_core (username, account_status) VALUES ($1, 'pending') RETURNING id`,
+      [username]
+    );
+    const newUserId = coreResult.rows[0].id;
+
+    // Insert ลง user_auth (สำหรับระบบจริง ควร Hash Password ก่อนลง Database เสมอ)
+    await pool.query(
+      `INSERT INTO user_auth (user_id, auth_type, auth_data) VALUES ($1, 'password', $2)`,
+      [newUserId, password]
+    );
+
+    await pool.query('COMMIT');
+    res.json({ success: true, message: 'สร้างบัญชีเริ่มต้นสำเร็จ', userId: newUserId });
 
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ success: false, error: 'ลงทะเบียนล้มเหลว' });
+    await pool.query('ROLLBACK');
+    console.error('Register API Error:', error);
+    res.status(500).json({ success: false, error: 'ระบบขัดข้อง ไม่สามารถสร้างบัญชีได้' });
   }
 });
+
 
 // ---------------------------------------------------------
 // API 2: ดึงข้อมูลหน้า Profile (คำนวณ Level, อายุ และดึงข้อมูลหลายตาราง)
