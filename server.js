@@ -1,4 +1,5 @@
 const express = require('express');
+const bcrypt = require('bcrypt');
 const cors = require('cors');
 const { Pool } = require('pg');
 require('dotenv').config();
@@ -80,51 +81,72 @@ function calculateDetailedAge(startDate) {
 
   return { years, months, days };
 }
-
-// API: ลงทะเบียนบัญชีพื้นฐาน (สร้างเฉพาะ ID โดยที่ global_id ยังเป็น NULL)
+// ---------------------------------------------------------
+// API: ลงทะเบียนผู้ใช้ใหม่ (พร้อมเข้ารหัสผ่าน & กำหนดสิทธิ์)
+// ---------------------------------------------------------
 app.post('/api/register/basic', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, country, gender, dob } = req.body;
 
   try {
-    // 1. เช็คว่ามี Username นี้ในตาราง users_core หรือยัง
+    // 1. ตรวจสอบว่า Username ซ้ำหรือไม่
     const checkUser = await pool.query('SELECT id FROM users_core WHERE username = $1', [username]);
     if (checkUser.rows.length > 0) {
-      return res.status(400).json({ success: false, message: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว' });
+      return res.status(400).json({ success: false, message: 'ชื่อผู้ใช้นี้ถูกใช้งานแล้ว กรุณาเลือกชื่ออื่น' });
     }
 
-    // 2. ใช้ Transaction บันทึกลงตารางที่เกี่ยวข้องพร้อมกัน (ป้องกันข้อมูลพังถ้ามี Error)
+    // 2. เข้ารหัสผ่าน (Hash Password) ด้วย bcrypt (ความปลอดภัยระดับ 10)
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+    // 3. เริ่ม Transaction (ถ้ามีอะไรพังกลางคัน จะยกเลิกทั้งหมด)
     await pool.query('BEGIN');
 
-    // Insert ลง users_core
+    // 4. บันทึกลงตารางแกนกลาง (users_core)
     const coreResult = await pool.query(
-      `INSERT INTO users_core (username, account_status) VALUES ($1, 'pending') RETURNING id`,
+      `INSERT INTO users_core (username, account_status) VALUES ($1, 'active') RETURNING id`,
       [username]
     );
     const newUserId = coreResult.rows[0].id;
 
-    // Insert ลง user_auth (สำหรับระบบจริง ควร Hash Password ก่อนลง Database เสมอ)
+    // 5. บันทึกรหัสผ่านที่เข้ารหัสแล้ว ลงตารางยืนยันตัวตน (user_auth)
     await pool.query(
       `INSERT INTO user_auth (user_id, auth_type, auth_data) VALUES ($1, 'password', $2)`,
-      [newUserId, password]
+      [newUserId, hashedPassword]
     );
 
-// 3. สร้างข้อมูลตั้งต้นในตาราง "users" พร้อมเติมค่าชั่วคราวให้คอลัมน์ที่ห้ามว่าง
-    const tempGlobalId = `PENDING-${newUserId}`;
-    const tempPhone = '-'; 
-    const tempDateOfBirth = '2000-01-01'; // เพิ่มวันเกิดชั่วคราว (ปี-เดือน-วัน)
-    
+    // 6. สร้าง Global ID ตามสูตรของคุณ
+    const birthYear = new Date(dob).getFullYear();
+    const globalIdData = {
+      countryCode: country,
+      birthYear: birthYear,
+      gender: gender,
+      religion: '1', // หรือรับพารามิเตอร์เพิ่มถ้ามี
+      regionCode: 'BKK' // หรือรับพารามิเตอร์เพิ่มถ้ามี
+    };
+    const realGlobalId = generateGlobalId(globalIdData); // ต้องมีฟังก์ชันนี้อยู่ในไฟล์แล้ว
+
+    // 7. บันทึกข้อมูลส่วนตัวลงตารางโปรไฟล์ (users)
     await pool.query(
-      `INSERT INTO users (id, username, global_id, phone, date_of_birth) VALUES ($1, $2, $3, $4, $5)`, 
-      [newUserId, username, tempGlobalId, tempPhone, tempDateOfBirth]
+      `INSERT INTO users (id, username, global_id, phone, date_of_birth, nationality, gender) 
+       VALUES ($1, $2, $3, '-', $4, $5, $6)`, 
+      [newUserId, username, realGlobalId, dob, country, gender]
     );
 
+    // 8. กำหนดสิทธิ์เริ่มต้นเป็น "ผู้ใช้งานทั่วไป" (USER)
+    await pool.query(
+      `INSERT INTO user_roles (user_id, role_code) VALUES ($1, 'USER')`,
+      [newUserId]
+    );
+
+    // 9. ยืนยันการบันทึกข้อมูลทั้งหมด (Commit Transaction)
     await pool.query('COMMIT');
-    res.json({ success: true, message: 'สร้างบัญชีเริ่มต้นสำเร็จ', userId: newUserId });
+    res.json({ success: true, message: 'สร้างบัญชีและเข้ารหัสข้อมูลสำเร็จ', userId: newUserId });
 
   } catch (error) {
+    // ถ้าระหว่างทางมี Error ให้ยกเลิกข้อมูลทั้งหมดที่เพิ่มไปในรอบนี้
     await pool.query('ROLLBACK');
     console.error('Register API Error:', error);
-    res.status(500).json({ success: false, error: 'ระบบขัดข้อง ไม่สามารถสร้างบัญชีได้' });
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถสร้างบัญชีได้' });
   }
 });
 
