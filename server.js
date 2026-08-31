@@ -294,7 +294,6 @@ app.post('/api/profile/change-password', async (req, res) => {
     res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเปลี่ยนรหัสผ่านได้' });
   }
 });
-
 // ---------------------------------------------------------
 // API 2: ดึงข้อมูลหน้า Profile (คำนวณ Level, อายุ และดึงข้อมูลหลายตาราง)
 // ---------------------------------------------------------
@@ -302,7 +301,7 @@ app.get('/api/profile/:id', async (req, res) => {
   const userId = req.params.id;
 
   try {
-    // ใช้ SQL JOIN และ COUNT แบบย่อย เพื่อดึงข้อมูลเพื่อนและผู้ติดตาม
+    // 1. ใช้ SQL JOIN และ COUNT แบบย่อย ของเดิม 100%
     const query = `
       SELECT 
         u.*,
@@ -322,13 +321,24 @@ app.get('/api/profile/:id', async (req, res) => {
 
     const userData = result.rows[0];
 
-    // คำนวณอายุจริง
+    // 2. [เพิ่มใหม่] ดึงข้อมูลจากตาราง Append-Only ล่าสุด (is_active = 1) แยกตามหมวดหมู่
+    const profileQuery = await pool.query(`SELECT first_name, last_name, id_card FROM user_profile WHERE user_id = $1 AND is_active = 1 ORDER BY created_at DESC LIMIT 1`, [userId]);
+    const userProfile = profileQuery.rows[0] || {};
+
+    const contactQuery = await pool.query(`SELECT phone, email, is_phone_verified, is_email_verified FROM user_contacts WHERE user_id = $1 AND is_active = 1 ORDER BY created_at DESC LIMIT 1`, [userId]);
+    const userContact = contactQuery.rows[0] || {};
+
+    const displayQuery = await pool.query(`SELECT avatar_url, cover_url FROM user_display WHERE user_id = $1 AND is_active = 1 ORDER BY created_at DESC LIMIT 1`, [userId]);
+    const userDisplay = displayQuery.rows[0] || {};
+
+
+    // คำนวณอายุจริง (ฟังก์ชันเดิม)
     const age = calculateDetailedAge(userData.date_of_birth);
-    // คำนวณอายุการใช้งานระบบ
+    // คำนวณอายุการใช้งานระบบ (ฟังก์ชันเดิม)
     const accountAge = calculateDetailedAge(userData.created_at);
 
     // ---------------------------------------------------------
-    // ตรรกะการคำนวณ Level
+    // ตรรกะการคำนวณ Level (ของเดิม)
     // ---------------------------------------------------------
     let calculatedLevel = 1; 
     const friendsCount = parseInt(userData.friends_count) || 0;
@@ -341,11 +351,22 @@ app.get('/api/profile/:id', async (req, res) => {
         calculatedLevel += 2; 
     }
 
-    // สรุปข้อมูลส่งกลับไปให้ Frontend ไปวาดเป็น UI
+    // สรุปข้อมูลส่งกลับไปให้ Frontend ไปวาดเป็น UI (รักษาโครงสร้าง JSON เดิมไว้)
     const profileResponse = {
       global_id: userData.global_id,
       username: userData.username,
-      phone: userData.phone,
+      
+      // [ส่วนที่นำข้อมูลใหม่มาประกอบ]
+      phone: userContact.phone || userData.phone, // ดึงจากตารางติดต่อก่อน ถ้าไม่มีให้ใช้ของเดิม
+      email: userContact.email || '',
+      first_name: userProfile.first_name || '',
+      last_name: userProfile.last_name || '',
+      id_card: userProfile.id_card || '',
+      avatar_url: userDisplay.avatar_url || '',
+      cover_url: userDisplay.cover_url || '',
+      is_phone_verified: userContact.is_phone_verified || false,
+      is_email_verified: userContact.is_email_verified || false,
+
       nationality: userData.nationality,
       gender: userData.gender,
       demographics: {
