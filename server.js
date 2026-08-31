@@ -294,6 +294,7 @@ app.post('/api/profile/change-password', async (req, res) => {
     res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเปลี่ยนรหัสผ่านได้' });
   }
 });
+
 // ---------------------------------------------------------
 // API 2: ดึงข้อมูลหน้า Profile (คำนวณ Level, อายุ และดึงข้อมูลหลายตาราง)
 // ---------------------------------------------------------
@@ -427,6 +428,19 @@ app.post('/api/profile/details', async (req, res) => {
     }
 });
 
+// ---------------------------------------------------------
+// API 5: ลบข้อมูลการ์ดย่อยแบบ Soft Delete (เปลี่ยน is_active = 0)
+// ---------------------------------------------------------
+app.put('/api/profile/details/:id/delete', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const query = `UPDATE user_details SET is_active = 0, deleted_at = CURRENT_TIMESTAMP WHERE id = $1 RETURNING *`;
+        const { rows } = await pool.query(query, [id]);
+        res.json(rows[0]);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 // ---------------------------------------------------------
 // API 5: ลบข้อมูลการ์ดย่อยแบบ Soft Delete (เปลี่ยน is_active = 0)
 // ---------------------------------------------------------
