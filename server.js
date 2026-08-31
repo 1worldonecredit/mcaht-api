@@ -117,6 +117,7 @@ app.post('/api/check-username', async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 });
+
 // ---------------------------------------------------------
 // API: ลงทะเบียนผู้ใช้ใหม่ (พร้อมเข้ารหัสผ่าน & กำหนดสิทธิ์)
 // ---------------------------------------------------------
@@ -161,10 +162,10 @@ app.post('/api/register/basic', async (req, res) => {
     };
     const realGlobalId = generateGlobalId(globalIdData); // ต้องมีฟังก์ชันนี้อยู่ในไฟล์แล้ว
 
-    // 7. บันทึกข้อมูลส่วนตัวลงตารางโปรไฟล์ (users)
+// 7. บันทึกข้อมูลส่วนตัวลงตารางโปรไฟล์ (users)
     await pool.query(
       `INSERT INTO users (id, username, global_id, phone, date_of_birth, nationality, gender) 
-       VALUES ($1, $2, $3, '-', $4, $5, $6)`, 
+       VALUES ($1, $2, $3, NULL, $4, $5, $6)`, // <-- เปลี่ยนจาก '-' เป็น NULL ตรงนี้
       [newUserId, username, realGlobalId, dob, country, gender]
     );
 
