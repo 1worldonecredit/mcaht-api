@@ -187,35 +187,53 @@ app.post('/api/register/basic', async (req, res) => {
   }
 });
 
-
-// API: เข้าสู่ระบบ (Login)
+// ---------------------------------------------------------
+// API: เข้าสู่ระบบ (Login & ตรวจสอบสิทธิ์)
+// ---------------------------------------------------------
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
 
+  if (!username || !password) {
+    return res.status(400).json({ success: false, message: 'MISSING DATA: กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
+  }
+
   try {
-    // ดึงข้อมูล user และรหัสผ่านจาก 2 ตารางมาเช็ค
-    const userQuery = await pool.query(`
-      SELECT c.id, a.auth_data 
-      FROM users_core c 
-      JOIN user_auth a ON c.id = a.user_id 
-      WHERE c.username = $1 AND a.auth_type = 'password'
-    `, [username]);
-
+    // 1. ตรวจสอบการมีอยู่และสถานะของบัญชี
+    const userQuery = await pool.query('SELECT id, account_status FROM users_core WHERE username = $1', [username]);
     if (userQuery.rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'ไม่พบชื่อผู้ใช้นี้ในระบบ' });
+      return res.status(401).json({ success: false, message: 'ACCESS DENIED: ไม่พบชื่อผู้ใช้นี้ในระบบ' });
     }
 
-    // เทียบรหัสผ่าน (ระบบจริงควรใช้ bcrypt.compare)
-    const storedPassword = userQuery.rows[0].auth_data;
-    if (password !== storedPassword) {
-      return res.status(400).json({ success: false, message: 'รหัสผ่านไม่ถูกต้อง' });
+    const user = userQuery.rows[0];
+    if (user.account_status !== 'active') {
+      return res.status(403).json({ success: false, message: 'ACCOUNT SUSPENDED: บัญชีนี้ถูกระงับการใช้งาน' });
     }
 
-    res.json({ success: true, message: 'เข้าสู่ระบบสำเร็จ', userId: userQuery.rows[0].id });
+    // 2. ดึงรหัสผ่านที่เข้ารหัสไว้มาเปรียบเทียบ
+    const authQuery = await pool.query(`SELECT auth_data FROM user_auth WHERE user_id = $1 AND auth_type = 'password'`, [user.id]);
+    if (authQuery.rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'AUTH ERROR: บัญชีนี้ไม่ได้ตั้งรหัสผ่าน (อาจสมัครด้วย Social)' });
+    }
+
+    const isValidPassword = await bcrypt.compare(password, authQuery.rows[0].auth_data);
+    if (!isValidPassword) {
+      return res.status(401).json({ success: false, message: 'ACCESS DENIED: รหัสผ่านไม่ถูกต้อง' });
+    }
+
+    // 3. ดึงสิทธิ์ผู้ใช้งาน (Roles) ไปใช้ควบคุมหน้าต่างส่วนต่างๆ ในแอป
+    const roleQuery = await pool.query('SELECT role_code FROM user_roles WHERE user_id = $1', [user.id]);
+    const roles = roleQuery.rows.map(r => r.role_code);
+
+    res.json({ 
+      success: true, 
+      userId: user.id,
+      username: username,
+      roles: roles.length > 0 ? roles : ['USER'] 
+    });
 
   } catch (error) {
-    console.error('Login Error:', error);
-    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเข้าสู่ระบบได้' });
+    console.error('Login API Error:', error);
+    res.status(500).json({ success: false, message: 'SYSTEM ERROR: ระบบขัดข้อง ไม่สามารถเข้าสู่ระบบได้' });
   }
 });
 
