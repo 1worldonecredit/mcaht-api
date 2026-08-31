@@ -18,11 +18,10 @@ const allowedOrigins = [
   'http://localhost:5173',         // สำหรับทดสอบ Frontend (Vite) บนเครื่องตัวเอง
   'http://localhost:3000'          // สำหรับทดสอบ Frontend (อื่นๆ)
 ];
-
-const corsOptions = {
+app.use(cors({
   origin: function (origin, callback) {
-    // อนุญาต requests ที่ไม่มี origin (เช่น Mobile App หรือ Postman) หรือ origin ที่อยู่ใน whitelist
-    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+    // อนุญาต request ที่ไม่มี origin (เช่น Postman) หรือ origin ที่อยู่ใน whitelist
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
       callback(new Error('ไม่อนุญาตโดย CORS policy (Not allowed by CORS)'));
@@ -31,10 +30,11 @@ const corsOptions = {
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
-};
+}));
 
-app.use(cors(corsOptions));
+// ต้องมีบรรทัดนี้เพื่อให้อ่านข้อมูล JSON ที่ส่งมาจากหน้าบ้านได้
 app.use(express.json());
+
 
 // ---------------------------------------------------------
 // เชื่อมต่อฐานข้อมูล PostgreSQL (Neon)
