@@ -81,6 +81,24 @@ function calculateDetailedAge(startDate) {
 
   return { years, months, days };
 }
+
+
+// API: ดึงข้อมูล Master Data สำหรับหน้าลงทะเบียน
+app.get('/api/reference-data', async (req, res) => {
+  try {
+    const countries = await pool.query('SELECT code, name_en as name FROM ref_countries ORDER BY code DESC');
+    const genders = await pool.query('SELECT code, name_en as name FROM ref_genders');
+    
+    res.json({ 
+      success: true, 
+      countries: countries.rows, 
+      genders: genders.rows 
+    });
+  } catch (error) {
+    console.error('Fetch Ref Data Error:', error);
+    res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลอ้างอิงได้' });
+  }
+});
 // ---------------------------------------------------------
 // API: ลงทะเบียนผู้ใช้ใหม่ (พร้อมเข้ารหัสผ่าน & กำหนดสิทธิ์)
 // ---------------------------------------------------------
@@ -151,22 +169,6 @@ app.post('/api/register/basic', async (req, res) => {
 });
 
 
-// API: ดึงข้อมูล Master Data สำหรับหน้าลงทะเบียน
-app.get('/api/reference-data', async (req, res) => {
-  try {
-    const countries = await pool.query('SELECT code, name_en as name FROM ref_countries ORDER BY code DESC');
-    const genders = await pool.query('SELECT code, name_en as name FROM ref_genders');
-    
-    res.json({ 
-      success: true, 
-      countries: countries.rows, 
-      genders: genders.rows 
-    });
-  } catch (error) {
-    console.error('Fetch Ref Data Error:', error);
-    res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลอ้างอิงได้' });
-  }
-});
 // API: เข้าสู่ระบบ (Login)
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
