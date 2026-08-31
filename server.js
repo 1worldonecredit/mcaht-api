@@ -99,6 +99,24 @@ app.get('/api/reference-data', async (req, res) => {
     res.status(500).json({ success: false, error: 'ไม่สามารถดึงข้อมูลอ้างอิงได้' });
   }
 });
+
+
+// API: ตรวจสอบ Username ซ้ำแบบ Real-time
+app.post('/api/check-username', async (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ success: false, message: 'กรุณาระบุชื่อผู้ใช้' });
+
+  try {
+    const check = await pool.query('SELECT id FROM users_core WHERE username = $1', [username]);
+    if (check.rows.length > 0) {
+      return res.json({ success: true, available: false });
+    }
+    return res.json({ success: true, available: true });
+  } catch (error) {
+    console.error('Check Username Error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+});
 // ---------------------------------------------------------
 // API: ลงทะเบียนผู้ใช้ใหม่ (พร้อมเข้ารหัสผ่าน & กำหนดสิทธิ์)
 // ---------------------------------------------------------
