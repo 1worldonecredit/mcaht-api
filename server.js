@@ -101,15 +101,24 @@ app.get('/api/reference-data', async (req, res) => {
 });
 
 
-// API: ตรวจสอบ Username ซ้ำแบบ Real-time
+// API: ตรวจสอบ Username ซ้ำแบบ Real-time (พร้อมดึงข้อมูลมาแสดงเป็นผู้แนะนำ)
 app.post('/api/check-username', async (req, res) => {
   const { username } = req.body;
   if (!username) return res.status(400).json({ success: false, message: 'กรุณาระบุชื่อผู้ใช้' });
 
   try {
-    const check = await pool.query('SELECT id FROM users_core WHERE username = $1', [username]);
+    // ดึงข้อมูลจากตาราง users_core (หากคุณมีตาราง user_details ที่เก็บชื่อ-นามสกุล ให้ใช้ JOIN เพิ่มในบรรทัดนี้ได้เลยครับ)
+    const check = await pool.query('SELECT id, username FROM users_core WHERE username = $1', [username]);
+    
     if (check.rows.length > 0) {
-      return res.json({ success: true, available: false });
+      return res.json({ 
+        success: true, 
+        available: false, 
+        userData: {
+          // หากในอนาคตมีคอลัมน์ชื่อจริง ให้แก้เป็น: displayName: `${check.rows[0].first_name} ${check.rows[0].last_name}`
+          displayName: check.rows[0].username 
+        }
+      });
     }
     return res.json({ success: true, available: true });
   } catch (error) {
