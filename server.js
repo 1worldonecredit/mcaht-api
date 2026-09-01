@@ -468,5 +468,35 @@ app.put('/api/profile/details/:id/delete', async (req, res) => {
     }
 });
 
+// ---------------------------------------------------------
+// API: อัปโหลดและบันทึกรูปโปรไฟล์/ภาพปก
+// ---------------------------------------------------------
+app.post('/api/profile/upload-image', async (req, res) => {
+  const { userId, type, imageUrl } = req.body; // type จะเป็น 'avatar' หรือ 'cover'
+  
+  try {
+    // เช็คว่ามีเรคคอร์ดในตารางรึยัง
+    const checkUser = await pool.query(`SELECT id FROM user_display WHERE user_id = $1`, [userId]);
+    
+    if (checkUser.rows.length > 0) {
+      // มีข้อมูลแล้ว ให้อัปเดตคอลัมน์ที่ตรงกับ type
+      const column = type === 'avatar' ? 'avatar_url' : 'cover_url';
+      await pool.query(`UPDATE user_display SET ${column} = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`, [userId, imageUrl]);
+    } else {
+      // ยังไม่มีข้อมูล ให้ Insert ใหม่
+      if (type === 'avatar') {
+        await pool.query(`INSERT INTO user_display (user_id, avatar_url) VALUES ($1, $2)`, [userId, imageUrl]);
+      } else {
+        await pool.query(`INSERT INTO user_display (user_id, cover_url) VALUES ($1, $2)`, [userId, imageUrl]);
+      }
+    }
+    
+    res.json({ success: true, message: 'บันทึกรูปภาพสำเร็จ' });
+  } catch (err) {
+    console.error('Image Upload API Error:', err);
+    res.status(500).json({ success: false, error: 'บันทึกรูปล้มเหลว' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
