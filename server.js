@@ -391,6 +391,59 @@ app.get('/api/profile/:id', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------
+// API: บันทึกข้อมูลส่วนบุคคล (ชื่อ, โทรศัพท์, อีเมล, บัตรประชาชน)
+// ---------------------------------------------------------
+app.post('/api/profile/update', async (req, res) => {
+  const { userId, field, firstName, lastName, phone, email, idCard } = req.body;
+
+  try {
+    if (field === 'name') {
+      // ฐานข้อมูลคุณมีแค่คอลัมน์ display_name จึงต้องเอาชื่อ-นามสกุลมาต่อกันก่อนบันทึก
+      const fullName = `${firstName} ${lastName}`.trim();
+      await pool.query(
+        `UPDATE user_profile SET display_name = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [fullName, userId]
+      );
+    } 
+    else if (field === 'phone') {
+      // อัปเดตเบอร์โทรในตาราง user_profile
+      await pool.query(
+        `UPDATE user_profile SET phone = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [phone, userId]
+      );
+    } 
+    else if (field === 'email') {
+      // อีเมลถูกเก็บใน user_contacts แบบแนวตั้ง (contact_type = 'email')
+      const checkEmail = await pool.query(`SELECT id FROM user_contacts WHERE user_id = $1 AND contact_type = 'email'`, [userId]);
+      
+      if (checkEmail.rows.length > 0) {
+        await pool.query(
+          `UPDATE user_contacts SET contact_value = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND contact_type = 'email'`,
+          [email, userId]
+        );
+      } else {
+        await pool.query(
+          `INSERT INTO user_contacts (user_id, contact_type, contact_value, created_at) VALUES ($1, 'email', $2, CURRENT_TIMESTAMP)`,
+          [userId, email]
+        );
+      }
+    }
+    else if (field === 'idcard') {
+      // อัปเดตเลขบัตรประชาชน
+      await pool.query(
+        `UPDATE user_profile SET id_card = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [idCard, userId]
+      );
+    }
+
+    res.json({ success: true, message: 'อัปเดตข้อมูลสำเร็จ' });
+
+  } catch (error) {
+    console.error('Update Profile API Error:', error);
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง บันทึกข้อมูลไม่สำเร็จ' });
+  }
+});
 
 
 // ---------------------------------------------------------
