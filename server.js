@@ -447,6 +447,40 @@ app.post('/api/profile/update', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------
+// API: บันทึกการตั้งค่า Theme (รองรับผู้ใช้ใหม่)
+// ---------------------------------------------------------
+app.post('/api/profile/theme', async (req, res) => {
+  const { userId, theme } = req.body;
+
+  try {
+    // 1. เช็คว่าผู้ใช้นี้มีเรคคอร์ดในตาราง user_display หรือยัง
+    const checkUser = await pool.query(
+      `SELECT user_id FROM user_display WHERE user_id = $1`, 
+      [userId]
+    );
+    
+    if (checkUser.rows.length > 0) {
+      // 2. ถ้ามีข้อมูลแล้ว -> ให้อัปเดตธีม
+      await pool.query(
+        `UPDATE user_display SET theme_preference = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`,
+        [theme, userId]
+      );
+    } else {
+      // 3. ถ้าเป็นผู้ใช้ใหม่ยังไม่มีข้อมูล -> ให้ Insert สร้างใหม่
+      await pool.query(
+        `INSERT INTO user_display (user_id, theme_preference, updated_at) VALUES ($1, $2, CURRENT_TIMESTAMP)`,
+        [userId, theme]
+      );
+    }
+    
+    res.json({ success: true, message: 'บันทึกธีมสำเร็จ' });
+
+  } catch (error) {
+    console.error('Update Theme API Error:', error);
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง บันทึกธีมไม่สำเร็จ' });
+  }
+});
 
 // ---------------------------------------------------------
 // API 3: ดึงข้อมูลการ์ดย่อย (Dynamic Details) ที่ยังไม่ถูกลบ
