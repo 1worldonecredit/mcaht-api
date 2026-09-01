@@ -294,28 +294,29 @@ app.post('/api/profile/change-password', async (req, res) => {
     res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเปลี่ยนรหัสผ่านได้' });
   }
 });
+
 // ---------------------------------------------------------
-// API 2: ดึงข้อมูลหน้า Profile (ปรับปรุง Performance: รวบจบใน Query เดียว)
+// API 2: ดึงข้อมูลหน้า Profile (Single Query ปรับให้ตรงกับ Database จริง 100%)
 // ---------------------------------------------------------
 app.get('/api/profile/:id', async (req, res) => {
   const userId = req.params.id;
 
   try {
-    // ใช้ SQL Query เดียว รวบยอดทุกตารางด้วย LEFT JOIN เพื่อประสิทธิภาพสูงสุด (รองรับ 1000+ Concurrent)
     const query = `
       SELECT 
         u.*,
         (SELECT COUNT(*) FROM friends WHERE user_id = u.id) AS friends_count,
         (SELECT COUNT(*) FROM followers WHERE channel_owner_id = u.id) AS followers_count,
         r.username AS referrer_name,
-        up.first_name, up.last_name, up.id_card,
-        uc.phone AS contact_phone, uc.email, uc.is_phone_verified, uc.is_email_verified,
-        ud.avatar_url, ud.cover_url
+        up.display_name, up.phone AS up_phone, up.avatar_url AS up_avatar, up.cover_url AS up_cover,
+        (SELECT contact_value FROM user_contacts WHERE user_id = u.id AND contact_type = 'email' LIMIT 1) AS email,
+        (SELECT is_verified FROM user_contacts WHERE user_id = u.id AND contact_type = 'email' LIMIT 1) AS is_email_verified,
+        (SELECT is_verified FROM user_contacts WHERE user_id = u.id AND contact_type = 'phone' LIMIT 1) AS is_phone_verified,
+        ud.avatar_url AS ud_avatar
       FROM users u
       LEFT JOIN users r ON u.referrer_id = r.id
-      LEFT JOIN user_profile up ON up.user_id = u.id AND up.is_active = 1
-      LEFT JOIN user_contacts uc ON uc.user_id = u.id AND uc.is_active = 1
-      LEFT JOIN user_display ud ON ud.user_id = u.id AND ud.is_active = 1
+      LEFT JOIN user_profile up ON up.user_id = u.id
+      LEFT JOIN user_display ud ON ud.user_id = u.id
       WHERE u.id = $1;
     `;
     
@@ -327,12 +328,9 @@ app.get('/api/profile/:id', async (req, res) => {
 
     const userData = result.rows[0];
 
-    // คำนวณอายุจริง
     const age = calculateDetailedAge(userData.date_of_birth);
-    // คำนวณอายุการใช้งานระบบ
     const accountAge = calculateDetailedAge(userData.created_at);
 
-    // ตรรกะการคำนวณ Level (ตามงานเก่า)
     let calculatedLevel = 1; 
     const friendsCount = parseInt(userData.friends_count) || 0;
     const followersCount = parseInt(userData.followers_count) || 0;
@@ -344,28 +342,27 @@ app.get('/api/profile/:id', async (req, res) => {
         calculatedLevel += 2; 
     }
 
-    // จัด JSON Response เพื่อส่งกลับ (โครงสร้างเดิมที่ Frontend ใช้งานได้ทันที)
     const profileResponse = {
       global_id: userData.global_id,
       username: userData.username,
       
-      // ข้อมูลจากตารางเสริม
-      first_name: userData.first_name || '',
-      last_name: userData.last_name || '',
-      id_card: userData.id_card || '',
-      phone: userData.contact_phone || userData.phone || '',
+      // แมปข้อมูลให้ตรงกับที่ Frontend (Profile.jsx) รอรับ
+      first_name: userData.display_name || '', // ดึงจาก display_name แทน
+      last_name: '', // โครงสร้างคุณไม่มีคอลัมน์นี้ ปล่อยว่างไว้กันระบบพัง
+      id_card: '',   // โครงสร้างคุณไม่มีคอลัมน์นี้ ปล่อยว่างไว้กันระบบพัง
+      phone: userData.up_phone || userData.phone || '',
       email: userData.email || '',
       is_phone_verified: userData.is_phone_verified || false,
       is_email_verified: userData.is_email_verified || false,
-      avatar_url: userData.avatar_url || '',
-      cover_url: userData.cover_url || '',
+      avatar_url: userData.up_avatar || userData.ud_avatar || '',
+      cover_url: userData.up_cover || '',
 
       nationality: userData.nationality,
       gender: userData.gender,
       demographics: {
         birth_date: userData.date_of_birth,
-        age: `${age.years} ปี ${age.months} เดือน ${age.days} วัน`,
-        account_age: `${accountAge.years} ปี ${accountAge.months} เดือน ${accountAge.days} วัน`,
+        age: `${age?.years || 0} ปี ${age?.months || 0} เดือน ${age?.days || 0} วัน`,
+        account_age: `${accountAge?.years || 0} ปี ${accountAge?.months || 0} เดือน ${accountAge?.days || 0} วัน`,
       },
       stats: {
         friends: friendsCount,
@@ -391,6 +388,8 @@ app.get('/api/profile/:id', async (req, res) => {
     res.status(500).json({ success: false, error: 'ดึงข้อมูลโปรไฟล์ล้มเหลว' });
   }
 });
+
+
 
 // ---------------------------------------------------------
 // API 3: ดึงข้อมูลการ์ดย่อย (Dynamic Details) ที่ยังไม่ถูกลบ
