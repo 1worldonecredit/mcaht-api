@@ -467,33 +467,36 @@ app.put('/api/profile/details/:id/delete', async (req, res) => {
         res.status(500).json({ error: err.message });
     }
 });
-
 // ---------------------------------------------------------
-// API: อัปโหลดและบันทึกรูปโปรไฟล์/ภาพปก
+// API: บันทึกรูปภาพ (Profile & Cover) ลงตาราง user_profile
 // ---------------------------------------------------------
 app.post('/api/profile/upload-image', async (req, res) => {
-  const { userId, type, imageUrl } = req.body; // type จะเป็น 'avatar' หรือ 'cover'
+  const { userId, type, imageBase64 } = req.body;
   
   try {
-    // เช็คว่ามีเรคคอร์ดในตารางรึยัง
-    const checkUser = await pool.query(`SELECT id FROM user_display WHERE user_id = $1`, [userId]);
+    // กำหนดคอลัมน์ที่ต้องการอัปเดต (avatar หรือ cover)
+    const column = type === 'avatar' ? 'avatar_url' : 'cover_url';
     
-    if (checkUser.rows.length > 0) {
-      // มีข้อมูลแล้ว ให้อัปเดตคอลัมน์ที่ตรงกับ type
-      const column = type === 'avatar' ? 'avatar_url' : 'cover_url';
-      await pool.query(`UPDATE user_display SET ${column} = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $1`, [userId, imageUrl]);
+    // 1. เช็คว่ามีข้อมูลผู้ใช้นี้ในตาราง user_profile หรือยัง
+    const checkQuery = await pool.query(`SELECT id FROM user_profile WHERE user_id = $1`, [userId]);
+    
+    if (checkQuery.rows.length > 0) {
+      // ถ้ามีเรคคอร์ดแล้ว ให้อัปเดตข้อมูล
+      await pool.query(
+        `UPDATE user_profile SET ${column} = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2`, 
+        [imageBase64, userId]
+      );
     } else {
-      // ยังไม่มีข้อมูล ให้ Insert ใหม่
-      if (type === 'avatar') {
-        await pool.query(`INSERT INTO user_display (user_id, avatar_url) VALUES ($1, $2)`, [userId, imageUrl]);
-      } else {
-        await pool.query(`INSERT INTO user_display (user_id, cover_url) VALUES ($1, $2)`, [userId, imageUrl]);
-      }
+      // ถ้ายังไม่มีเรคคอร์ด ให้สร้างใหม่พร้อมบันทึกรูป
+      await pool.query(
+        `INSERT INTO user_profile (user_id, ${column}, created_at) VALUES ($1, $2, CURRENT_TIMESTAMP)`, 
+        [userId, imageBase64]
+      );
     }
     
     res.json({ success: true, message: 'บันทึกรูปภาพสำเร็จ' });
-  } catch (err) {
-    console.error('Image Upload API Error:', err);
+  } catch (error) {
+    console.error('Image Upload API Error:', error);
     res.status(500).json({ success: false, error: 'บันทึกรูปล้มเหลว' });
   }
 });
