@@ -414,18 +414,19 @@ app.post('/api/profile/update', async (req, res) => {
         [phone, userId]
       );
     } 
-    else if (field === 'email') {
-      // อีเมลถูกเก็บใน user_contacts แบบแนวตั้ง (contact_type = 'email')
+   else if (field === 'email') {
       const checkEmail = await pool.query(`SELECT id FROM user_contacts WHERE user_id = $1 AND contact_type = 'email'`, [userId]);
       
       if (checkEmail.rows.length > 0) {
+        // กรณีมีอีเมลเดิมอยู่แล้ว -> ให้อัปเดต
         await pool.query(
           `UPDATE user_contacts SET contact_value = $1, updated_at = CURRENT_TIMESTAMP WHERE user_id = $2 AND contact_type = 'email'`,
           [email, userId]
         );
       } else {
+        // กรณีเพิ่งกรอกครั้งแรก -> ให้ Insert พร้อมแนบ updated_at 
         await pool.query(
-          `INSERT INTO user_contacts (user_id, contact_type, contact_value, created_at) VALUES ($1, 'email', $2, CURRENT_TIMESTAMP)`,
+          `INSERT INTO user_contacts (user_id, contact_type, contact_value, updated_at) VALUES ($1, 'email', $2, CURRENT_TIMESTAMP)`,
           [userId, email]
         );
       }
