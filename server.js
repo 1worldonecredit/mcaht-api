@@ -32,8 +32,10 @@ app.use(cors({
   credentials: true
 }));
 
-// ต้องมีบรรทัดนี้เพื่อให้อ่านข้อมูล JSON ที่ส่งมาจากหน้าบ้านได้
-app.use(express.json());
+
+// เพิ่ม limit ให้รองรับไฟล์รูปภาพขนาดใหญ่ (ใส่ไว้บรรทัดบนๆ ของ server.js)
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
 
 // ---------------------------------------------------------
