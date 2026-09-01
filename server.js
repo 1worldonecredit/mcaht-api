@@ -304,13 +304,14 @@ app.get('/api/profile/:id', async (req, res) => {
   const userId = req.params.id;
 
   try {
+   // เพิ่ม up.id_card เข้าไปใน SELECT
     const query = `
       SELECT 
         u.*,
         (SELECT COUNT(*) FROM friends WHERE user_id = u.id) AS friends_count,
         (SELECT COUNT(*) FROM followers WHERE channel_owner_id = u.id) AS followers_count,
         r.username AS referrer_name,
-        up.display_name, up.phone AS up_phone, up.avatar_url AS up_avatar, up.cover_url AS up_cover,
+        up.display_name, up.phone AS up_phone, up.avatar_url AS up_avatar, up.cover_url AS up_cover, up.id_card,
         (SELECT contact_value FROM user_contacts WHERE user_id = u.id AND contact_type = 'email' LIMIT 1) AS email,
         (SELECT is_verified FROM user_contacts WHERE user_id = u.id AND contact_type = 'email' LIMIT 1) AS is_email_verified,
         (SELECT is_verified FROM user_contacts WHERE user_id = u.id AND contact_type = 'phone' LIMIT 1) AS is_phone_verified,
@@ -351,7 +352,7 @@ app.get('/api/profile/:id', async (req, res) => {
       // แมปข้อมูลให้ตรงกับที่ Frontend (Profile.jsx) รอรับ
       first_name: userData.display_name || '', // ดึงจาก display_name แทน
       last_name: '', // โครงสร้างคุณไม่มีคอลัมน์นี้ ปล่อยว่างไว้กันระบบพัง
-      id_card: '',   // โครงสร้างคุณไม่มีคอลัมน์นี้ ปล่อยว่างไว้กันระบบพัง
+      id_card: userData.id_card || '',
       phone: userData.up_phone || userData.phone || '',
       email: userData.email || '',
       is_phone_verified: userData.is_phone_verified || false,
