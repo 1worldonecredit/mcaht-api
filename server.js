@@ -593,9 +593,6 @@ app.post('/api/profile/upload-image', async (req, res) => {
 });
 
 
-const express = require('styled-components'); // หรือ express
-const router = express.Router();
-const pool = require('../db'); // เปลี่ยนที่อยู่ไฟล์ db ของคุณให้ถูกต้อง (ไฟล์ที่เชื่อมต่อ Neon Postgres)
 
 // ==========================================
 // 1. API สำหรับดึงข้อมูลช่องของ User (GET /api/channels)
