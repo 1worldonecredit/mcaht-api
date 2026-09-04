@@ -854,5 +854,28 @@ app.post('/api/videos/upload', upload.fields([{ name: 'videoFile', maxCount: 1 }
   }
 });
 
+// ==========================================
+// API ดึงรายการวิดีโอที่รอตรวจสอบ (GET /api/videos/pending)
+// ==========================================
+app.get('/api/videos/pending', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ success: false, message: 'กรุณาส่ง userId' });
+
+    // ดึงวิดีโอที่สถานะ pending ของ user คนนี้ เรียงจากใหม่ไปเก่า
+    const query = `
+      SELECT * FROM media_videos 
+      WHERE user_id = $1 AND status = 'pending'
+      ORDER BY created_at DESC;
+    `;
+    const result = await pool.query(query, [userId]);
+    
+    res.json({ success: true, videos: result.rows });
+  } catch (error) {
+    console.error('Fetch Pending Videos Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
