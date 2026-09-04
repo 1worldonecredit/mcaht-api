@@ -676,5 +676,121 @@ router.post('/api/channels/create', async (req, res) => {
 
 module.exports = router;
 
+
+
+// ==========================================
+// 1. ดึงข้อมูลช่อง พร้อม Logo และตำแหน่งลายน้ำ (GET /api/channels)
+// ==========================================
+app.get('/api/channels', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    if (!userId) return res.status(400).json({ success: false, message: 'กรุณาส่ง userId' });
+
+    const query = `
+      SELECT c.*, l.logo_url, l.watermark_position 
+      FROM media_channels c
+      LEFT JOIN media_channel_logos l ON c.id = l.channel_id
+      WHERE c.user_id = $1 
+      LIMIT 1;
+    `;
+    const result = await pool.query(query, [userId]);
+
+    if (result.rows.length > 0) {
+      res.json({ success: true, channel: result.rows[0] });
+    } else {
+      res.json({ success: true, channel: null });
+    }
+  } catch (error) {
+    console.error('Error fetching channel:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ==========================================
+// 2. สร้างช่องใหม่ หรือ แก้ไขข้อมูลช่องเดิม (POST /api/channels/save)
+// ==========================================
+app.post('/api/channels/save', async (req, res) => {
+  try {
+    const { userId, channelName, category, description } = req.body;
+    if (!userId || !channelName || !category) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    }
+
+    const checkUserQuery = `SELECT id FROM media_channels WHERE user_id = $1`;
+    const checkUserResult = await pool.query(checkUserQuery, [userId]);
+
+    if (checkUserResult.rows.length > 0) {
+      const updateQuery = `
+        UPDATE media_channels 
+        SET channel_name = $1, category = $2, description = $3
+        WHERE user_id = $4
+        RETURNING *;
+      `;
+      const updatedChannel = await pool.query(updateQuery, [channelName, category, description, userId]);
+      return res.json({ success: true, message: 'อัปเดตข้อมูลช่องสำเร็จ', channel: updatedChannel.rows[0] });
+      
+    } else {
+      const checkNameQuery = `SELECT id FROM media_channels WHERE channel_name = $1`;
+      const checkNameResult = await pool.query(checkNameQuery, [channelName]);
+      if (checkNameResult.rows.length > 0) {
+        return res.status(400).json({ success: false, message: 'ชื่อช่องนี้ถูกใช้งานแล้ว กรุณาใช้ชื่ออื่น' });
+      }
+
+      const insertQuery = `
+        INSERT INTO media_channels (user_id, channel_name, category, description, status, plan_type)
+        VALUES ($1, $2, $3, $4, 'pending', 'free')
+        RETURNING *;
+      `;
+      const newChannel = await pool.query(insertQuery, [userId, channelName, category, description]);
+      return res.status(201).json({ success: true, message: 'สร้างช่องสำเร็จ (รอตรวจสอบ)', channel: newChannel.rows[0] });
+    }
+  } catch (error) {
+    console.error('Error saving channel:', error);
+    if (error.code === '23505') { 
+      return res.status(400).json({ success: false, message: 'ชื่อช่องซ้ำ' });
+    }
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ==========================================
+// 3. บันทึกรูป Logo และตำแหน่งลายน้ำ (POST /api/channels/logo)
+// ==========================================
+app.post('/api/channels/logo', async (req, res) => {
+  try {
+    const { userId, logoBase64, watermarkPosition } = req.body;
+    
+    if (!userId) return res.status(400).json({ success: false, message: 'ไม่พบ userId' });
+
+    const channelQuery = `SELECT id FROM media_channels WHERE user_id = $1 LIMIT 1`;
+    const channelResult = await pool.query(channelQuery, [userId]);
+    
+    if (channelResult.rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'กรุณาสร้างช่องก่อนอัปโหลดโลโก้' });
+    }
+    
+    const channelId = channelResult.rows[0].id;
+
+    const upsertLogoQuery = `
+      INSERT INTO media_channel_logos (user_id, channel_id, logo_url, watermark_position, updated_at)
+      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
+      ON CONFLICT (user_id) 
+      DO UPDATE SET 
+        logo_url = COALESCE($3, media_channel_logos.logo_url),
+        watermark_position = COALESCE($4, media_channel_logos.watermark_position),
+        updated_at = CURRENT_TIMESTAMP
+      RETURNING *;
+    `;
+    
+    const logoResult = await pool.query(upsertLogoQuery, [userId, channelId, logoBase64, watermarkPosition]);
+
+    res.json({ success: true, message: 'อัปเดตโลโก้/ตำแหน่งลายน้ำสำเร็จ', data: logoResult.rows[0] });
+
+  } catch (error) {
+    console.error('Error uploading logo:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
