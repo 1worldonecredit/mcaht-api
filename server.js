@@ -592,5 +592,89 @@ app.post('/api/profile/upload-image', async (req, res) => {
   }
 });
 
+
+const express = require('styled-components'); // หรือ express
+const router = express.Router();
+const pool = require('../db'); // เปลี่ยนที่อยู่ไฟล์ db ของคุณให้ถูกต้อง (ไฟล์ที่เชื่อมต่อ Neon Postgres)
+
+// ==========================================
+// 1. API สำหรับดึงข้อมูลช่องของ User (GET /api/channels)
+// ==========================================
+router.get('/api/channels', async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ success: false, message: 'กรุณาส่ง userId' });
+    }
+
+    // ค้นหาช่องที่ user_id เป็นเจ้าของ
+    const query = `
+      SELECT * FROM media_channels 
+      WHERE user_id = $1 
+      LIMIT 1;
+    `;
+    const result = await pool.query(query, [userId]);
+
+    if (result.rows.length > 0) {
+      // มีช่องแล้ว ส่งข้อมูลช่องกลับไป
+      res.json({ success: true, channel: result.rows[0] });
+    } else {
+      // ยังไม่มีช่อง
+      res.json({ success: true, channel: null });
+    }
+  } catch (error) {
+    console.error('Error fetching channel:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// ==========================================
+// 2. API สำหรับสร้างช่องใหม่ (POST /api/channels/create)
+// ==========================================
+router.post('/api/channels/create', async (req, res) => {
+  try {
+    const { userId, channelName, category, description } = req.body;
+
+    if (!userId || !channelName || !category) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลไม่ครบถ้วน' });
+    }
+
+    // ตรวจสอบว่าชื่อช่องซ้ำหรือไม่ (เพื่อป้องกัน Error จาก Database)
+    const checkNameQuery = `SELECT id FROM media_channels WHERE channel_name = $1`;
+    const checkNameResult = await pool.query(checkNameQuery, [channelName]);
+    
+    if (checkNameResult.rows.length > 0) {
+      return res.status(400).json({ success: false, message: 'ชื่อช่องนี้ถูกใช้งานแล้ว กรุณาใช้ชื่ออื่น' });
+    }
+
+    // บันทึกข้อมูลลงตาราง (สถานะเริ่มต้นเป็น 'pending' และแพ็กเกจเป็น 'free')
+    const insertQuery = `
+      INSERT INTO media_channels (user_id, channel_name, category, description, status, plan_type)
+      VALUES ($1, $2, $3, $4, 'pending', 'free')
+      RETURNING *;
+    `;
+    const values = [userId, channelName, category, description];
+    
+    const newChannel = await pool.query(insertQuery, values);
+
+    res.status(201).json({ 
+      success: true, 
+      message: 'สร้างช่องสำเร็จ (รอการตรวจสอบ)', 
+      channel: newChannel.rows[0] 
+    });
+
+  } catch (error) {
+    console.error('Error creating channel:', error);
+    // เช็ก Error กรณี user_id ซ้ำ (1 คนมีได้แค่ 1 ช่องตาม UNIQUE constraint)
+    if (error.code === '23505') { 
+      return res.status(400).json({ success: false, message: 'ผู้ใช้งานนี้มีช่องอยู่แล้ว หรือ ชื่อช่องซ้ำ' });
+    }
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+module.exports = router;
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
