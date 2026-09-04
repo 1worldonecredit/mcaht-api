@@ -597,7 +597,7 @@ app.post('/api/profile/upload-image', async (req, res) => {
 // ==========================================
 // 1. API สำหรับดึงข้อมูลช่องของ User (GET /api/channels)
 // ==========================================
-router.get('/api/channels', async (req, res) => {
+app.get('/api/channels', async (req, res) => {
   try {
     const { userId } = req.query;
 
@@ -629,7 +629,7 @@ router.get('/api/channels', async (req, res) => {
 // ==========================================
 // 2. API สำหรับสร้างช่องใหม่ (POST /api/channels/create)
 // ==========================================
-router.post('/api/channels/create', async (req, res) => {
+app.post('/api/channels/create', async (req, res) => {
   try {
     const { userId, channelName, category, description } = req.body;
 
