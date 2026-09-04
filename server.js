@@ -812,10 +812,15 @@ const upload = multer({
   limits: { fileSize: 500 * 1024 * 1024 } 
 });
 
+
 // ==========================================
-// API สำหรับอัปโหลด Video และข้อมูลไปรอตรวจ
+// API สำหรับอัปโหลด Video และข้อมูล (รับภาพเปิด และ ภาพปิด)
 // ==========================================
-app.post('/api/videos/upload', upload.fields([{ name: 'videoFile', maxCount: 1 }, { name: 'coverFile', maxCount: 1 }]), async (req, res) => {
+app.post('/api/videos/upload', upload.fields([
+  { name: 'videoFile', maxCount: 1 }, 
+  { name: 'coverFile', maxCount: 1 },
+  { name: 'outroCoverFile', maxCount: 1 } // เพิ่มตัวรับภาพปิดหน้า
+]), async (req, res) => {
   try {
     const { userId, title, category, description, publishDate, expireDate, aspectRatio } = req.body;
     
@@ -825,25 +830,28 @@ app.post('/api/videos/upload', upload.fields([{ name: 'videoFile', maxCount: 1 }
     }
     const channelId = channelQuery.rows[0].id;
 
+    // เช็กและสร้าง path ของไฟล์ต่างๆ
     const videoFile = req.files && req.files['videoFile'] ? `/uploads/${req.files['videoFile'][0].filename}` : null;
     const coverFile = req.files && req.files['coverFile'] ? `/uploads/${req.files['coverFile'][0].filename}` : null;
+    const outroCoverFile = req.files && req.files['outroCoverFile'] ? `/uploads/${req.files['outroCoverFile'][0].filename}` : null;
 
     if (!videoFile) {
       return res.status(400).json({ success: false, message: 'ไม่พบไฟล์วิดีโอ' });
     }
     
+    // จัดการวันที่และ Timezone
     const pDate = publishDate ? new Date(publishDate) : new Date();
     const eDate = expireDate ? new Date(expireDate) : null;
     const ratio = aspectRatio || '9:16';
 
     const insertQuery = `
       INSERT INTO media_videos 
-      (channel_id, user_id, title, category, description, cover_url, url_high, publish_date, expire_date, status, aspect_ratio)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10)
+      (channel_id, user_id, title, category, description, cover_url, outro_cover_url, url_low, url_med, url_high, publish_date, expire_date, status, aspect_ratio)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13)
       RETURNING *;
     `;
     
-    const values = [channelId, userId, title, category, description, coverFile, videoFile, pDate, eDate, ratio];
+    const values = [channelId, userId, title, category, description, coverFile, outroCoverFile, videoFile, videoFile, videoFile, pDate, eDate, ratio];
     const newVideo = await pool.query(insertQuery, values);
 
     res.status(201).json({ success: true, message: 'อัปโหลดสำเร็จ รอแอดมินตรวจสอบ', video: newVideo.rows[0] });
@@ -853,7 +861,6 @@ app.post('/api/videos/upload', upload.fields([{ name: 'videoFile', maxCount: 1 }
     res.status(500).json({ success: false, message: 'Server error: ' + error.message });
   }
 });
-
 // ==========================================
 // API ดึงรายการวิดีโอที่รอตรวจสอบ (GET /api/videos/pending)
 // ==========================================
