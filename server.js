@@ -789,5 +789,70 @@ app.post('/api/channels/logo', async (req, res) => {
   }
 });
 
+
+const multer = require('multer');
+const path = require('path');
+
+// ตั้งค่าที่เก็บไฟล์ (บันทึกไว้ในโฟลเดอร์ uploads/ ก่อน)
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, 'uploads/'); // อย่าลืมสร้างโฟลเดอร์ uploads ไว้ในโปรเจกต์ด้วยนะครับ
+  },
+  filename: function (req, file, cb) {
+    cb(null, Date.now() + path.extname(file.originalname));
+  }
+});
+const upload = multer({ 
+  storage: storage,
+  limits: { fileSize: 500 * 1024 * 1024 } // จำกัดขนาดไฟล์สูงสุด 500MB
+});
+
+// ==========================================
+// API สำหรับอัปโหลด Video และข้อมูลไปรอตรวจ (POST /api/videos/upload)
+// ==========================================
+app.post('/api/videos/upload', upload.fields([{ name: 'videoFile', maxCount: 1 }, { name: 'coverFile', maxCount: 1 }]), async (req, res) => {
+  try {
+    const { userId, title, category, description, publishDate, expireDate } = req.body;
+    
+    // 1. หา Channel ID ของ User นี้ก่อน
+    const channelQuery = await pool.query(`SELECT id FROM media_channels WHERE user_id = $1`, [userId]);
+    if (channelQuery.rows.length === 0) {
+      return res.status(400).json({ success: false, message: 'คุณยังไม่มีช่อง กรุณาสร้างช่องก่อนอัปโหลดวิดีโอ' });
+    }
+    const channelId = channelQuery.rows[0].id;
+
+    // 2. รับ Path ของไฟล์ที่อัปโหลดมา
+    const videoFile = req.files['videoFile'] ? `/uploads/${req.files['videoFile'][0].filename}` : null;
+    const coverFile = req.files['coverFile'] ? `/uploads/${req.files['coverFile'][0].filename}` : null;
+
+    if (!videoFile) {
+      return res.status(400).json({ success: false, message: 'ไม่พบไฟล์วิดีโอ' });
+    }
+
+    // 3. บันทึกลงตาราง media_videos
+    // หมายเหตุ: ในระบบจริง url_low, med, high จะได้มาจากการนำ videoFile ไปแปลงด้วย FFmpeg หรือ Cloudflare 
+    // แต่เบื้องต้นเราจะบันทึก url_high เป็นไฟล์ต้นฉบับไปก่อน เพื่อให้ระบบทำงานได้ครบวงจร
+    
+    const pDate = publishDate ? new Date(publishDate) : new Date();
+    const eDate = expireDate ? new Date(expireDate) : null;
+
+    const insertQuery = `
+      INSERT INTO media_videos 
+      (channel_id, user_id, title, category, description, cover_url, url_high, publish_date, expire_date, status)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending')
+      RETURNING *;
+    `;
+    
+    const values = [channelId, userId, title, category, description, coverFile, videoFile, pDate, eDate];
+    const newVideo = await pool.query(insertQuery, values);
+
+    res.status(201).json({ success: true, message: 'อัปโหลดสำเร็จ รอแอดมินตรวจสอบ', video: newVideo.rows[0] });
+
+  } catch (error) {
+    console.error('Video Upload Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
