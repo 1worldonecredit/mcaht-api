@@ -946,32 +946,33 @@ app.get('/api/videos/channel', async (req, res) => {
   }
 });
 
+
+
+// ==========================================
+// 🌟 API อัปเดตสถานะและเวลาเผยแพร่วิดีโอ
+// ==========================================
 app.post('/api/videos/update-status', async (req, res) => {
-  try {
-    const { videoId, visibility, publishDate } = req.body;
-    // บังคับกลับเป็น pending เมื่อมีการแก้ไข
-    const updateQuery = `UPDATE media_videos SET visibility = $1, publish_date = $2, status = 'pending' WHERE id = $3 RETURNING *;`;
-    const result = await pool.query(updateQuery, [visibility, publishDate, videoId]);
-    res.json({ success: true, video: result.rows[0] });
-  } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
-  }
-});
+    try {
+        const { videoId, visibility, publishDate } = req.body;
+        
+        // อัปเดตข้อมูลลง Database
+        const updateQuery = `
+            UPDATE media_videos 
+            SET visibility = $1, publish_date = $2, updated_at = NOW()
+            WHERE id = $3 
+            RETURNING *;
+        `;
+        const result = await pool.query(updateQuery, [visibility, publishDate, videoId]);
 
-const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
-const multer = require('multer');
-
-// รับไฟล์ไว้ใน Memory ก่อนส่งขึ้น R2
-const upload = multer({ storage: multer.memoryStorage() });
-
-// ตั้งค่าการเชื่อมต่อ R2 โดยดึง Account ID ที่เรามีอยู่แล้วมาใช้เป็น Endpoint
-const s3 = new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY_ID,
-        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-    },
+        if (result.rows.length > 0) {
+            res.json({ success: true, message: 'อัปเดตข้อมูลวิดีโอสำเร็จ', video: result.rows[0] });
+        } else {
+            res.status(404).json({ success: false, message: 'ไม่พบวิดีโอนี้ในระบบ' });
+        }
+    } catch (error) {
+        console.error('Update Video Status Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
 });
 
 // ==========================================
