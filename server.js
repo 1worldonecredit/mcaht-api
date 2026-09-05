@@ -794,7 +794,6 @@ app.post('/api/channels/logo', async (req, res) => {
 
 const fs = require('fs');
 const multer = require('multer');
-const path = require('path');
 
 // 1. เช็คและสร้างโฟลเดอร์ uploads อัตโนมัติ (แก้ปัญหา Error 500 บนเซิร์ฟเวอร์)
 const uploadDir = path.join(__dirname, 'uploads');
