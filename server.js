@@ -869,7 +869,17 @@ app.post('/api/videos/upload', async (req, res) => {
 });
 
 
-
+app.post('/api/videos/delete', async (req, res) => {
+    try {
+        const { videoId, userId } = req.body;
+        const updateQuery = `UPDATE media_videos SET status = 'deleted' WHERE id = $1 AND user_id = $2 RETURNING id`;
+        await pool.query(updateQuery, [videoId, userId]);
+        res.json({ success: true, message: 'ลบวิดีโอสำเร็จ' });
+    } catch (error) {
+        console.error('Delete Video Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
 
 
 
