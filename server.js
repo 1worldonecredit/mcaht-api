@@ -7,6 +7,24 @@ require('dotenv').config();
 
 const app = express();
 
+
+
+
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const multer = require('multer');
+
+// 1. ตั้งค่า Multer สำหรับรับไฟล์มาพักไว้ใน RAM ชั่วคราว
+const upload = multer({ storage: multer.memoryStorage() });
+
+// 2. ตั้งค่ากุญแจเชื่อมต่อ Cloudflare R2 (ดึงรหัสจาก Railway มาใช้แบบอัตโนมัติ)
+const s3 = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+});
 // ---------------------------------------------------------
 // 0. ตั้งค่า CORS (จำกัดโดเมนที่อนุญาตให้เข้าถึง API)
 // ---------------------------------------------------------
