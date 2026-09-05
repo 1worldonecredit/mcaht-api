@@ -998,5 +998,40 @@ app.post('/api/upload/image', upload.single('image'), async (req, res) => {
     }
 });
 
+
+// ==========================================
+// ==========================================
+// 🌟 API ดึงวิดีโอหน้าฟีด (Media Feed) สำหรับหน้า Media.jsx
+// ==========================================
+app.get('/api/videos/feed', async (req, res) => {
+    try {
+        // ดึงวิดีโอที่ผ่านการอนุมัติ พร้อม Join ข้อมูลลายน้ำและช่องจาก media_channels
+        const query = `
+            SELECT 
+                v.*, 
+                c.channel_name, 
+                c.logo_url AS watermark_url, 
+                c.watermark_position
+            FROM media_videos v
+            LEFT JOIN media_channels c ON v.user_id = c.user_id
+            WHERE v.status = 'approved'
+            ORDER BY v.created_at DESC
+        `;
+        const result = await pool.query(query);
+        res.json({ success: true, videos: result.rows });
+    } catch (error) {
+        console.error('Feed API Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
+    }
+});
+
+
+
+
+
+// ==========================================
+// 🌟 API ดึงวิดีโอหน้าฟีด (Media Feed)  หน้าบ้าน end
+// ==========================================
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
