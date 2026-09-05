@@ -7,8 +7,6 @@ require('dotenv').config();
 
 const app = express();
 
-// อนุญาตให้หน้าเว็บ (Frontend) สามารถเข้าถึงไฟล์ในโฟลเดอร์ uploads ได้
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // ---------------------------------------------------------
 // 0. ตั้งค่า CORS (จำกัดโดเมนที่อนุญาตให้เข้าถึง API)
 // ---------------------------------------------------------
@@ -792,98 +790,78 @@ app.post('/api/channels/logo', async (req, res) => {
   }
 });
 
-const fs = require('fs');
-const multer = require('multer');
 
-// 1. เช็คและสร้างโฟลเดอร์ uploads อัตโนมัติ (แก้ปัญหา Error 500 บนเซิร์ฟเวอร์)
-const uploadDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
+// 1. API ขอ URL จาก Cloudflare (ชื่อใหม่สำหรับทำ Direct Upload)
+app.post('/api/get-upload-url', async (req, res) => {
+    try {
+        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+        const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, 'uploads/'); 
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname));
-  }
-});
-const upload = multer({ 
-  storage: storage,
-  limits: { fileSize: 500 * 1024 * 1024 } 
-});
+        const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${apiToken}`,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                maxDurationSeconds: 3600,
+                creator: "m-chat-creator"
+            })
+        });
 
-
-// ==========================================
-// API สำหรับอัปโหลด Video และแก้ไขข้อมูล (บังคับ Pending ทุกครั้งที่แก้)
-// ==========================================
-app.post('/api/videos/upload', upload.fields([
-  { name: 'videoFile', maxCount: 1 }, 
-  { name: 'coverFile', maxCount: 1 },
-  { name: 'outroCoverFile', maxCount: 1 }
-]), async (req, res) => {
-  try {
-    const { videoId, userId, title, category, description, publishDate, expireDate, aspectRatio } = req.body;
-    
-    const channelQuery = await pool.query(`SELECT id FROM media_channels WHERE user_id = $1`, [userId]);
-    if (channelQuery.rows.length === 0) {
-      return res.status(400).json({ success: false, message: 'คุณยังไม่มีช่อง กรุณาสร้างช่องก่อนอัปโหลดวิดีโอ' });
+        const data = await response.json();
+        
+        if (data.success) {
+            res.json({ success: true, uploadUrl: data.result.uploadURL, uid: data.result.uid });
+        } else {
+            res.status(400).json({ success: false, message: 'Cloudflare Error', errors: data.errors });
+        }
+    } catch (error) {
+        console.error('Get Upload URL Error:', error);
+        res.status(500).json({ success: false, message: 'Server error' });
     }
-    const channelId = channelQuery.rows[0].id;
-
-    const videoFile = req.files && req.files['videoFile'] ? `/uploads/${req.files['videoFile'][0].filename}` : null;
-    const coverFile = req.files && req.files['coverFile'] ? `/uploads/${req.files['coverFile'][0].filename}` : null;
-    const outroCoverFile = req.files && req.files['outroCoverFile'] ? `/uploads/${req.files['outroCoverFile'][0].filename}` : null;
-
-    const pDate = publishDate ? new Date(publishDate) : new Date();
-    const eDate = expireDate ? new Date(expireDate) : null;
-    const ratio = aspectRatio || '9:16';
-
-    if (videoId && videoId !== 'undefined' && videoId !== 'null') {
-      // ----------------------------------------------------
-      // [โหมดแก้ไขข้อมูล] อัปเดตข้อมูล และบังคับ status = 'pending' 
-      // ----------------------------------------------------
-      const updateQuery = `
-        UPDATE media_videos 
-        SET 
-          title = $1, category = $2, description = $3, 
-          cover_url = COALESCE($4, cover_url), 
-          outro_cover_url = COALESCE($5, outro_cover_url), 
-          url_low = COALESCE($6, url_low), url_med = COALESCE($6, url_med), url_high = COALESCE($6, url_high), 
-          publish_date = $7, expire_date = $8, aspect_ratio = $9,
-          status = 'pending' -- บังคับกลับเป็นรอตรวจสอบเสมอ!
-        WHERE id = $10 AND user_id = $11
-        RETURNING *;
-      `;
-      const updateValues = [title, category, description, coverFile, outroCoverFile, videoFile, pDate, eDate, ratio, videoId, userId];
-      const updatedVideo = await pool.query(updateQuery, updateValues);
-      
-      return res.status(200).json({ success: true, message: 'อัปเดตและส่งตรวจใหม่สำเร็จ', video: updatedVideo.rows[0] });
-
-    } else {
-      // ----------------------------------------------------
-      // [โหมดสร้างใหม่]
-      // ----------------------------------------------------
-      if (!videoFile) return res.status(400).json({ success: false, message: 'ไม่พบไฟล์วิดีโอ' });
-
-      const insertQuery = `
-        INSERT INTO media_videos 
-        (channel_id, user_id, title, category, description, cover_url, outro_cover_url, url_low, url_med, url_high, publish_date, expire_date, status, aspect_ratio)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8, $8, $9, $10, 'pending', $11)
-        RETURNING *;
-      `;
-      const insertValues = [channelId, userId, title, category, description, coverFile, outroCoverFile, videoFile, pDate, eDate, ratio];
-      const newVideo = await pool.query(insertQuery, insertValues);
-
-      return res.status(201).json({ success: true, message: 'อัปโหลดสำเร็จ รอแอดมินตรวจสอบ', video: newVideo.rows[0] });
-    }
-
-  } catch (error) {
-    console.error('Video Upload Error:', error);
-    res.status(500).json({ success: false, message: 'Server error: ' + error.message });
-  }
 });
+
+// 2. API บันทึกข้อมูลวิดีโอ (ชื่อเดิม /api/videos/upload แต่รับ JSON แทนไฟล์)
+app.post('/api/videos/upload', async (req, res) => {
+    try {
+        const { videoId, userId, title, category, description, publishDate, visibility, aspectRatio, cf_video_id, cover_url, outro_cover_url } = req.body;
+        
+        const channelQuery = await pool.query(`SELECT id FROM media_channels WHERE user_id = $1`, [userId]);
+        if (channelQuery.rows.length === 0) return res.status(400).json({ success: false, message: 'กรุณาสร้างช่องก่อนอัปโหลด' });
+        
+        const channelId = channelQuery.rows[0].id;
+        const pDate = publishDate ? new Date(publishDate) : new Date();
+        const ratio = aspectRatio || '9:16';
+        const vis = visibility || 'public';
+
+        if (videoId && videoId !== 'undefined' && videoId !== 'null') {
+            // อัปเดตข้อมูลเดิม (ใช้ชื่อเดิมทั้งหมด)
+            const updateQuery = `
+                UPDATE media_videos 
+                SET title = $1, category = $2, description = $3, cover_url = COALESCE($4, cover_url), outro_cover_url = COALESCE($5, outro_cover_url), cf_video_id = COALESCE($6, cf_video_id), publish_date = $7, aspect_ratio = $8, visibility = $9, status = 'pending'
+                WHERE id = $10 AND user_id = $11 RETURNING *;
+            `;
+            const updatedVideo = await pool.query(updateQuery, [title, category, description, cover_url, outro_cover_url, cf_video_id, pDate, ratio, vis, videoId, userId]);
+            return res.status(200).json({ success: true, message: 'อัปเดตสำเร็จ', video: updatedVideo.rows[0] });
+        } else {
+            // สร้างใหม่ (ใช้ชื่อเดิมทั้งหมด)
+            if (!cf_video_id) return res.status(400).json({ success: false, message: 'ไม่พบรหัสวิดีโอจาก Cloudflare' });
+            const insertQuery = `
+                INSERT INTO media_videos (channel_id, user_id, title, category, description, cover_url, outro_cover_url, cf_video_id, publish_date, status, aspect_ratio, visibility)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', $10, $11) RETURNING *;
+            `;
+            const newVideo = await pool.query(insertQuery, [channelId, userId, title, category, description, cover_url, outro_cover_url, cf_video_id, pDate, ratio, vis]);
+            return res.status(201).json({ success: true, message: 'บันทึกสำเร็จ', video: newVideo.rows[0] });
+        }
+    } catch (error) {
+        console.error('Video Database Error:', error);
+        res.status(500).json({ success: false, message: 'Server error: ' + error.message });
+    }
+});
+
+
+
 
 
 
