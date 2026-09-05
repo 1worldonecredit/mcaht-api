@@ -751,44 +751,7 @@ app.post('/api/channels/save', async (req, res) => {
   }
 });
 
-// ==========================================
-// 3. บันทึกรูป Logo และตำแหน่งลายน้ำ (POST /api/channels/logo)
-// ==========================================
-app.post('/api/channels/logo', async (req, res) => {
-  try {
-    const { userId, logoBase64, watermarkPosition } = req.body;
-    
-    if (!userId) return res.status(400).json({ success: false, message: 'ไม่พบ userId' });
 
-    const channelQuery = `SELECT id FROM media_channels WHERE user_id = $1 LIMIT 1`;
-    const channelResult = await pool.query(channelQuery, [userId]);
-    
-    if (channelResult.rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'กรุณาสร้างช่องก่อนอัปโหลดโลโก้' });
-    }
-    
-    const channelId = channelResult.rows[0].id;
-
-    const upsertLogoQuery = `
-      INSERT INTO media_channel_logos (user_id, channel_id, logo_url, watermark_position, updated_at)
-      VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP)
-      ON CONFLICT (user_id) 
-      DO UPDATE SET 
-        logo_url = COALESCE($3, media_channel_logos.logo_url),
-        watermark_position = COALESCE($4, media_channel_logos.watermark_position),
-        updated_at = CURRENT_TIMESTAMP
-      RETURNING *;
-    `;
-    
-    const logoResult = await pool.query(upsertLogoQuery, [userId, channelId, logoBase64, watermarkPosition]);
-
-    res.json({ success: true, message: 'อัปเดตโลโก้/ตำแหน่งลายน้ำสำเร็จ', data: logoResult.rows[0] });
-
-  } catch (error) {
-    console.error('Error uploading logo:', error);
-    res.status(500).json({ success: false, message: 'Server error' });
-  }
-});
 
 // ==========================================
 // 🌟 API 1: ขอ URL อัปโหลดตรงจาก Cloudflare (Direct Upload)
@@ -907,20 +870,29 @@ app.get('/api/videos/pending', async (req, res) => {
 });
 
 
-// API สำหรับบันทึกโลโก้ช่อง
+// ==========================================
+// 🌟 API สำหรับบันทึกโลโก้ช่องและตำแหน่งลายน้ำ
+// ==========================================
 app.post('/api/channels/logo', async (req, res) => {
   try {
     const { userId, logoBase64, watermarkPosition } = req.body;
-    // อัปเดตตาราง media_channels โดยใช้ user_id เป็นตัวค้นหา
+    
+    // ดักจับกรณีไม่มี userId ส่งมา
+    if (!userId) {
+        return res.status(400).json({ success: false, message: 'ไม่พบ userId' });
+    }
+
+    // อัปเดตข้อมูลลงตาราง media_channels โดยตรง
     const updateQuery = `
       UPDATE media_channels 
       SET logo_url = $1, watermark_position = $2 
-      WHERE user_id = $3 RETURNING *;
+      WHERE user_id = $3 
+      RETURNING *;
     `;
     const result = await pool.query(updateQuery, [logoBase64, watermarkPosition, userId]);
     
     if (result.rows.length > 0) {
-      res.json({ success: true, channel: result.rows[0] });
+      res.json({ success: true, message: 'อัปเดตโลโก้สำเร็จ', channel: result.rows[0] });
     } else {
       res.status(404).json({ success: false, message: 'ไม่พบช่องของ User นี้' });
     }
