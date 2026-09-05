@@ -790,13 +790,16 @@ app.post('/api/channels/logo', async (req, res) => {
   }
 });
 
-
-// 1. API ขอ URL จาก Cloudflare (ชื่อใหม่สำหรับทำ Direct Upload)
+// ==========================================
+// 🌟 API 1: ขอ URL อัปโหลดตรงจาก Cloudflare (Direct Upload)
+// ==========================================
 app.post('/api/get-upload-url', async (req, res) => {
     try {
-        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-        const apiToken = process.env.CLOUDFLARE_API_TOKEN;
+        // เพิ่ม .trim() เข้าไปเพื่อตัดช่องว่างและ Enter ส่วนเกินออกอัตโนมัติ!
+        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID ? process.env.CLOUDFLARE_ACCOUNT_ID.trim() : '';
+        const apiToken = process.env.CLOUDFLARE_API_TOKEN ? process.env.CLOUDFLARE_API_TOKEN.trim() : '';
 
+        // ยิงขอ URL จาก Cloudflare
         const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/stream/direct_upload`, {
             method: 'POST',
             headers: {
@@ -804,7 +807,7 @@ app.post('/api/get-upload-url', async (req, res) => {
                 'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-                maxDurationSeconds: 3600,
+                maxDurationSeconds: 3600, // ความยาวสูงสุด 1 ชั่วโมง
                 creator: "m-chat-creator"
             })
         });
@@ -812,8 +815,13 @@ app.post('/api/get-upload-url', async (req, res) => {
         const data = await response.json();
         
         if (data.success) {
-            res.json({ success: true, uploadUrl: data.result.uploadURL, uid: data.result.uid });
+            res.json({ 
+                success: true, 
+                uploadUrl: data.result.uploadURL, 
+                uid: data.result.uid // รหัส cf_video_id
+            });
         } else {
+            console.error('Cloudflare Reject Error:', data.errors); // พิมพ์ Error ดูว่ามันบ่นเรื่องอะไร
             res.status(400).json({ success: false, message: 'Cloudflare Error', errors: data.errors });
         }
     } catch (error) {
