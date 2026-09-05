@@ -15,8 +15,8 @@ const allowedOrigins = [
   'https://mchatapi.9plus.app',
   'https://mchat.9plus.app',
   'https://www.mchatapi.9plus.app',    // โดเมนหลัก (มี www)
-  'http://localhost:5173',         // สำหรับทดสอบ Frontend (Vite) บนเครื่องตัวเอง
-  'http://localhost:3000'          // สำหรับทดสอบ Frontend (อื่นๆ)
+ 'http://localhost:5173',
+  'http://localhost:5174'       // สำหรับทดสอบ Frontend (อื่นๆ)
 ];
 app.use(cors({
   origin: function (origin, callback) {
@@ -904,6 +904,46 @@ app.get('/api/videos/pending', async (req, res) => {
     res.json({ success: true, videos: result.rows });
   } catch (error) {
     console.error('Fetch Pending Videos Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+
+// API สำหรับบันทึกโลโก้ช่อง
+app.post('/api/channels/logo', async (req, res) => {
+  try {
+    const { userId, logoBase64, watermarkPosition } = req.body;
+    // อัปเดตตาราง media_channels โดยใช้ user_id เป็นตัวค้นหา
+    const updateQuery = `
+      UPDATE media_channels 
+      SET logo_url = $1, watermark_position = $2 
+      WHERE user_id = $3 RETURNING *;
+    `;
+    const result = await pool.query(updateQuery, [logoBase64, watermarkPosition, userId]);
+    
+    if (result.rows.length > 0) {
+      res.json({ success: true, channel: result.rows[0] });
+    } else {
+      res.status(404).json({ success: false, message: 'ไม่พบช่องของ User นี้' });
+    }
+  } catch (error) {
+    console.error('Logo Update Error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// API สำหรับดึงวิดีโอทั้งหมดของช่องมาแสดง
+app.get('/api/videos/channel', async (req, res) => {
+  try {
+    const { userId } = req.query;
+    const query = `
+      SELECT * FROM media_videos 
+      WHERE user_id = $1 
+      ORDER BY created_at DESC;
+    `;
+    const result = await pool.query(query, [userId]);
+    res.json({ success: true, videos: result.rows });
+  } catch (error) {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 });
