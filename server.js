@@ -948,5 +948,17 @@ app.get('/api/videos/channel', async (req, res) => {
   }
 });
 
+app.post('/api/videos/update-status', async (req, res) => {
+  try {
+    const { videoId, visibility, publishDate } = req.body;
+    // บังคับกลับเป็น pending เมื่อมีการแก้ไข
+    const updateQuery = `UPDATE media_videos SET visibility = $1, publish_date = $2, status = 'pending' WHERE id = $3 RETURNING *;`;
+    const result = await pool.query(updateQuery, [visibility, publishDate, videoId]);
+    res.json({ success: true, video: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
