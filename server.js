@@ -969,7 +969,6 @@ app.post('/api/videos/update-status', async (req, res) => {
 // 🌟 API อัปโหลดรูปภาพขึ้น Cloudflare R2 ระบบ chat
 // ==========================================
 
-const upload = multer({ storage: multer.memoryStorage() });
 
 
 app.post('/api/upload/image', upload.single('image'), async (req, res) => {
