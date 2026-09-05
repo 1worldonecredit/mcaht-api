@@ -958,5 +958,51 @@ app.post('/api/videos/update-status', async (req, res) => {
   }
 });
 
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+const multer = require('multer');
+
+// รับไฟล์ไว้ใน Memory ก่อนส่งขึ้น R2
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ตั้งค่าการเชื่อมต่อ R2 โดยดึง Account ID ที่เรามีอยู่แล้วมาใช้เป็น Endpoint
+const s3 = new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+        accessKeyId: process.env.R2_ACCESS_KEY_ID,
+        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+});
+
+// ==========================================
+// 🌟 API อัปโหลดรูปภาพขึ้น Cloudflare R2 ระบบ chat
+// ==========================================
+app.post('/api/upload/image', upload.single('image'), async (req, res) => {
+    try {
+        const file = req.file;
+        if (!file) return res.status(400).json({ success: false, message: 'ไม่ได้แนบไฟล์รูปมา' });
+
+        // สร้างชื่อไฟล์ใหม่ไม่ให้ซ้ำกัน
+        const fileExtension = file.originalname.split('.').pop();
+        const fileName = `mchat_${Date.now()}_${Math.round(Math.random() * 1000)}.${fileExtension}`;
+
+        // ส่งไฟล์ขึ้น R2
+        await s3.send(new PutObjectCommand({
+            Bucket: process.env.R2_BUCKET_NAME,
+            Key: fileName,
+            Body: file.buffer,
+            ContentType: file.mimetype,
+        }));
+
+        // สร้าง URL สำหรับให้หน้าบ้านนำไปแสดงผล
+        const fileUrl = `${process.env.R2_PUBLIC_URL}/${fileName}`;
+        res.json({ success: true, url: fileUrl });
+
+    } catch (error) {
+        console.error('R2 Upload Error:', error);
+        res.status(500).json({ success: false, message: 'Upload failed' });
+    }
+});
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
