@@ -229,53 +229,66 @@ app.post('/api/register/basic', async (req, res) => {
   }
 });
 
-// ---------------------------------------------------------
-// API: เข้าสู่ระบบ (Login & ตรวจสอบสิทธิ์)
-// ---------------------------------------------------------
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-
-  if (!username || !password) {
-    return res.status(400).json({ success: false, message: 'MISSING DATA: กรุณากรอกชื่อผู้ใช้และรหัสผ่าน' });
-  }
-
+  
   try {
-    // 1. ตรวจสอบการมีอยู่และสถานะของบัญชี
-    const userQuery = await pool.query('SELECT id, account_status FROM users_core WHERE username = $1', [username]);
-    if (userQuery.rows.length === 0) {
-      return res.status(401).json({ success: false, message: 'ACCESS DENIED: ไม่พบชื่อผู้ใช้นี้ในระบบ' });
+    // 1. ดึงข้อมูลพื้นฐานของ User
+    const userResult = await pgPool.query(`
+        SELECT u.user_id, u.username, u.password_hash, u.wallet_balance, u.is_active,
+               un.firstname, un.lastname
+        FROM Users u
+        LEFT JOIN UserName_Lastname un ON u.user_id = un.user_id
+        WHERE u.username = $1
+    `, [username]);
+
+    if (userResult.rows.length === 0) {
+      return res.status(401).json({ success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
     }
 
-    const user = userQuery.rows[0];
-    if (user.account_status !== 'active') {
-      return res.status(403).json({ success: false, message: 'ACCOUNT SUSPENDED: บัญชีนี้ถูกระงับการใช้งาน' });
+    const user = userResult.rows[0];
+
+    // เช็คสถานะระงับบัญชี
+    if (user.is_active === false || user.is_active === 0 || user.is_active === '0') {
+      return res.status(403).json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน' });
     }
 
-    // 2. ดึงรหัสผ่านที่เข้ารหัสไว้มาเปรียบเทียบ
-    const authQuery = await pool.query(`SELECT auth_data FROM user_auth WHERE user_id = $1 AND auth_type = 'password'`, [user.id]);
-    if (authQuery.rows.length === 0) {
-      return res.status(401).json({ success: false, message: 'AUTH ERROR: บัญชีนี้ไม่ได้ตั้งรหัสผ่าน (อาจสมัครด้วย Social)' });
+    // 2. ตรวจสอบรหัสผ่าน (ถ้ามีการเข้ารหัส Bcrypt ให้เปลี่ยนมาใช้ bcrypt.compare)
+    if (password !== user.password_hash) {
+      return res.status(401).json({ success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
     }
 
-    const isValidPassword = await bcrypt.compare(password, authQuery.rows[0].auth_data);
-    if (!isValidPassword) {
-      return res.status(401).json({ success: false, message: 'ACCESS DENIED: รหัสผ่านไม่ถูกต้อง' });
-    }
+    // 3. ดึง "สิทธิ์ทั้งหมด" ของ User คนนี้ (นี่คือหัวใจสำคัญที่ทำให้ 1 คนเป็นได้ทั้ง พนักงาน และ ลูกค้า)
+    // ระบบจะไปค้นหาว่า user_id นี้มีสิทธิ์อะไรบ้าง แล้วจับมัดรวมเป็น Array
+    const roleResult = await pgPool.query(`
+        SELECT role_name 
+        FROM user_roles 
+        WHERE user_id = $1
+    `, [user.user_id]);
+    
+    // แปลงผลลัพธ์เป็น Array เช่น ["USER", "ADMIN"] ถ้าไม่มีข้อมูลให้เป็น ["USER"] ดั้งเดิมไว้ก่อน
+    const userRoles = roleResult.rows.length > 0 
+                      ? roleResult.rows.map(r => r.role_name.toUpperCase()) 
+                      : ["USER"];
 
-    // 3. ดึงสิทธิ์ผู้ใช้งาน (Roles) ไปใช้ควบคุมหน้าต่างส่วนต่างๆ ในแอป
-    const roleQuery = await pool.query('SELECT role_code FROM user_roles WHERE user_id = $1', [user.id]);
-    const roles = roleQuery.rows.map(r => r.role_code);
-
-    res.json({ 
+    // 4. ส่งข้อมูลกลับให้ Frontend และ Backend ใช้งาน
+    res.json({
       success: true, 
-      userId: user.id,
-      username: username,
-      roles: roles.length > 0 ? roles : ['USER'] 
+      message: 'เข้าสู่ระบบสำเร็จ',
+      userId: user.user_id,     // ส่งออกมาข้างนอกเผื่อ Salapi Admin ดึงไปใช้ด่วน
+      username: user.username,
+      roles: userRoles,         // 🌟 ส่งสิทธิ์เป็น Array ไปเลย เช่น ["USER", "SUPERADMIN"]
+      user: {
+        id: user.user_id, 
+        firstname: user.firstname || 'ผู้ใช้',
+        lastname: user.lastname || '',
+        wallet: user.wallet_balance || 0.00
+      }
     });
 
-  } catch (error) {
-    console.error('Login API Error:', error);
-    res.status(500).json({ success: false, message: 'SYSTEM ERROR: ระบบขัดข้อง ไม่สามารถเข้าสู่ระบบได้' });
+  } catch (err) {
+    console.error('Login API Error:', err);
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้' });
   }
 });
 
