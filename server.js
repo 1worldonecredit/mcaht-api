@@ -230,7 +230,7 @@ app.post('/api/register/basic', async (req, res) => {
 });
 
 // ---------------------------------------------------------
-// API: เข้าสู่ระบบ (Login & ตรวจสอบสิทธิ์)
+// API: เข้าสู่ระบบ (Login & ตรวจสอบสิทธิ์ + Permissions แบบละเอียด)
 // ---------------------------------------------------------
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
@@ -262,15 +262,25 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ success: false, message: 'ACCESS DENIED: รหัสผ่านไม่ถูกต้อง' });
     }
 
-    // 3. ดึงสิทธิ์ผู้ใช้งาน (Roles) ไปใช้ควบคุมหน้าต่างส่วนต่างๆ ในแอป
-    const roleQuery = await pool.query('SELECT role_code FROM user_roles WHERE user_id = $1', [user.id]);
-    const roles = roleQuery.rows.map(r => r.role_code);
+    // 3. ดึงสิทธิ์ผู้ใช้งาน (Roles) และสิทธิ์การเข้าถึงเมนู (Permissions)
+    // อาศัยการ JOIN ตาราง user_roles เข้ากับ role_permissions
+    const roleQuery = await pool.query(`
+      SELECT ur.role_code, rp.perm_code
+      FROM user_roles ur
+      LEFT JOIN role_permissions rp ON ur.role_code = rp.role_code
+      WHERE ur.user_id = $1
+    `, [user.id]);
+
+    // ใช้ Set เพื่อกรองข้อมูลที่ซ้ำกันออก (เผื่อกรณี 1 คนมีหลาย Role แต่มี Permission ทับซ้อนกัน)
+    const roles = [...new Set(roleQuery.rows.map(r => r.role_code))];
+    const permissions = [...new Set(roleQuery.rows.filter(r => r.perm_code !== null).map(r => r.perm_code))];
 
     res.json({ 
       success: true, 
       userId: user.id,
       username: username,
-      roles: roles.length > 0 ? roles : ['USER'] 
+      roles: roles.length > 0 ? roles : ['USER'],
+      permissions: permissions // ส่ง Array สิทธิ์ย่อยไปให้ Frontend ใช้เปิด/ปิดเมนู
     });
 
   } catch (error) {
