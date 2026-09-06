@@ -33,6 +33,7 @@ const allowedOrigins = [
   'https://www.9plus.app', 
   'https://mchatapi.9plus.app',
   'https://mchat.9plus.app',
+  'https://emp.9plus.app',
   'https://www.mchatapi.9plus.app',    // โดเมนหลัก (มี www)
  'http://localhost:5173',
   'http://localhost:5174'       // สำหรับทดสอบ Frontend (อื่นๆ)
