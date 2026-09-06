@@ -229,66 +229,144 @@ app.post('/api/register/basic', async (req, res) => {
   }
 });
 
+// ==========================================
+// 1. API สำหรับ Login (ใช้โค้ดเดิมของคุณทั้งหมด + อัปเดตตารางให้ตรงกับ Neon + รองรับ Multi-Role เป็น Array)
+// ==========================================
+const bcrypt = require('bcrypt'); // ต้องเรียกใช้เพื่อเทียบรหัสผ่านที่เข้ารหัส $2b$10$ ใน user_auth
+
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
   
+  // 🛡️ [ระบบ IP]: ดึง IP Address ของคนที่พยายาม Login
+  let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'Unknown';
+  if (clientIp.includes(',')) clientIp = clientIp.split(',')[0].trim();
+
   try {
-    // 1. ดึงข้อมูลพื้นฐานของ User
+    // 🛡️ [ระบบ IP]: 1. เช็คก่อนเลยว่า IP นี้ติดแบล็คลิสต์ (บล็อก) อยู่หรือไม่
+    const blockCheck = await pgPool.query(`SELECT is_blocked FROM Blocked_IPs WHERE ip_address = $1 AND is_blocked = '1'`, [clientIp]);
+        
+    if (blockCheck.rows.length > 0) {
+        return res.status(403).json({ success: false, message: 'IP ของคุณถูกบล็อก เนื่องจากพยายามเข้าระบบผิดพลาดหลายครั้ง' });
+    }
+
+    // 🛡️ [ระบบ IP]: ฟังก์ชันย่อยสำหรับนับจำนวนครั้งที่เข้าสู่ระบบผิดพลาด
+    const handleFailedLogin = async () => {
+        await pgPool.query(`INSERT INTO Login_Failed_Attempts (ip_address, attempt_time) VALUES ($1, CURRENT_TIMESTAMP)`, [clientIp]);
+
+        const failCheck = await pgPool.query(`
+            SELECT COUNT(id) as fail_count 
+            FROM Login_Failed_Attempts 
+            WHERE ip_address = $1 AND attempt_time >= CURRENT_TIMESTAMP - INTERVAL '1 minute'
+        `, [clientIp]);
+
+        const failCount = parseInt(failCheck.rows[0].fail_count, 10);
+
+        if (failCount >= 10) {
+            const existCheck = await pgPool.query(`SELECT 1 FROM Blocked_IPs WHERE ip_address = $1`, [clientIp]);
+            
+            if (existCheck.rows.length === 0) {
+                await pgPool.query(`
+                    INSERT INTO Blocked_IPs (ip_address, reason, is_blocked, updated_at) 
+                    VALUES ($1, 'Brute Force Login Attempt (>10 fails/min)', '1', CURRENT_TIMESTAMP)
+                `, [clientIp]);
+            } else {
+                await pgPool.query(`
+                    UPDATE Blocked_IPs 
+                    SET is_blocked = '1', reason = 'Brute Force Login Attempt (>10 fails/min)', updated_at = CURRENT_TIMESTAMP 
+                    WHERE ip_address = $1
+                `, [clientIp]);
+            }
+            return true; 
+        }
+        return false; 
+    };
+    
+    // 🌟 ดึงข้อมูล User (อิงตามตาราง users, user_auth และ user_profile ที่มีจริงใน Database)
     const userResult = await pgPool.query(`
-        SELECT u.user_id, u.username, u.password_hash, u.wallet_balance, u.is_active,
-               un.firstname, un.lastname
-        FROM Users u
-        LEFT JOIN UserName_Lastname un ON u.user_id = un.user_id
+        SELECT 
+          u.id AS user_id, 
+          u.username, 
+          u.is_active,
+          u.country, 
+          u.currency_code,
+          u.wallet_balance,
+          a.auth_data AS password_hash,
+          up.firstname, 
+          up.lastname
+        FROM users u
+        LEFT JOIN user_auth a ON u.id = a.user_id
+        LEFT JOIN user_profile up ON u.id = up.user_id
         WHERE u.username = $1
     `, [username]);
 
     if (userResult.rows.length === 0) {
+      const isBlockedNow = await handleFailedLogin();
+      if (isBlockedNow) {
+          return res.status(403).json({ success: false, message: 'IP ของคุณถูกบล็อก เนื่องจากพยายามเข้าระบบผิดพลาดหลายครั้ง' });
+      }
       return res.status(401).json({ success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
     }
 
     const user = userResult.rows[0];
 
-    // เช็คสถานะระงับบัญชี
+    // เช็คว่า User ถูกระงับการใช้งานหรือไม่ 
     if (user.is_active === false || user.is_active === 0 || user.is_active === '0') {
       return res.status(403).json({ success: false, message: 'บัญชีนี้ถูกระงับการใช้งาน' });
     }
 
-    // 2. ตรวจสอบรหัสผ่าน (ถ้ามีการเข้ารหัส Bcrypt ให้เปลี่ยนมาใช้ bcrypt.compare)
-    if (password !== user.password_hash) {
+    // ==========================================
+    // ตรวจสอบรหัสผ่าน (รองรับ bcrypt hash จาก user_auth)
+    // ==========================================
+    let validPassword = false;
+    if (user.password_hash) {
+      validPassword = await bcrypt.compare(password, user.password_hash);
+    } 
+    
+    if (!validPassword) {
+      const isBlockedNow = await handleFailedLogin();
+      if (isBlockedNow) {
+          return res.status(403).json({ success: false, message: 'IP ของคุณถูกบล็อก เนื่องจากพยายามเข้าระบบผิดพลาดหลายครั้ง' });
+      }
       return res.status(401).json({ success: false, message: 'ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง' });
     }
 
-    // 3. ดึง "สิทธิ์ทั้งหมด" ของ User คนนี้ (นี่คือหัวใจสำคัญที่ทำให้ 1 คนเป็นได้ทั้ง พนักงาน และ ลูกค้า)
-    // ระบบจะไปค้นหาว่า user_id นี้มีสิทธิ์อะไรบ้าง แล้วจับมัดรวมเป็น Array
+    // 🛡️ [ระบบ IP]: ล้างประวัติการใส่รหัสผิดทั้งหมด ถ้า Login สำเร็จ
+    await pgPool.query(`DELETE FROM Login_Failed_Attempts WHERE ip_address = $1`, [clientIp]);
+
+    // 🌟 ดึง "สิทธิ์ทั้งหมด" ของ User เป็น Array รองรับ พนักงาน/ลูกค้า ในบัญชีเดียว
     const roleResult = await pgPool.query(`
         SELECT role_name 
         FROM user_roles 
         WHERE user_id = $1
     `, [user.user_id]);
     
-    // แปลงผลลัพธ์เป็น Array เช่น ["USER", "ADMIN"] ถ้าไม่มีข้อมูลให้เป็น ["USER"] ดั้งเดิมไว้ก่อน
     const userRoles = roleResult.rows.length > 0 
                       ? roleResult.rows.map(r => r.role_name.toUpperCase()) 
                       : ["USER"];
 
-    // 4. ส่งข้อมูลกลับให้ Frontend และ Backend ใช้งาน
+    // 🌟 ส่งข้อมูลกลับไปให้ Frontend แบบจัดเต็ม
     res.json({
       success: true, 
       message: 'เข้าสู่ระบบสำเร็จ',
-      userId: user.user_id,     // ส่งออกมาข้างนอกเผื่อ Salapi Admin ดึงไปใช้ด่วน
+      userId: user.user_id,
       username: user.username,
-      roles: userRoles,         // 🌟 ส่งสิทธิ์เป็น Array ไปเลย เช่น ["USER", "SUPERADMIN"]
+      roles: userRoles,
       user: {
         id: user.user_id, 
+        user_id: user.user_id, 
+        username: user.username,
         firstname: user.firstname || 'ผู้ใช้',
         lastname: user.lastname || '',
-        wallet: user.wallet_balance || 0.00
+        country: user.country || 'Thailand',          
+        currency_code: user.currency_code || 'THB',    
+        wallet: user.wallet_balance || 0.00,
+        point: 0 
       }
     });
 
   } catch (err) {
     console.error('Login API Error:', err);
-    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้' });
+    res.status(500).json({ success: false, message: 'ระบบขัดข้อง ไม่สามารถเชื่อมต่อฐานข้อมูลได้ในขณะนี้' });
   }
 });
 
