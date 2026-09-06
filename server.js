@@ -232,7 +232,6 @@ app.post('/api/register/basic', async (req, res) => {
 // ==========================================
 // 1. API สำหรับ Login (ใช้โค้ดเดิมของคุณทั้งหมด + อัปเดตตารางให้ตรงกับ Neon + รองรับ Multi-Role เป็น Array)
 // ==========================================
-const bcrypt = require('bcrypt'); // ต้องเรียกใช้เพื่อเทียบรหัสผ่านที่เข้ารหัส $2b$10$ ใน user_auth
 
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
