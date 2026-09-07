@@ -1044,5 +1044,122 @@ app.get('/api/videos/feed', async (req, res) => {
 // 🌟 API ดึงวิดีโอหน้าฟีด (Media Feed)  หน้าบ้าน end
 // ==========================================
 
+
+// ==========================================
+// 🌟 ย้ายไป database ใหม่ และแก้ไขแล้ว
+// 🌟 API สำหรับระบบเมนูอัจฉริยะ (Dynamic Menu)
+// ==========================================
+// 1. ดึงข้อมูลเมนูทั้งหมด (GET) - ส่งไปให้ React วาดเมนูซ้ายมือ
+app.get('/api/menus', async (req, res) => {
+    try {
+        const result = await pgPool.query(`
+            SELECT 
+                menu_id AS id, 
+                title, 
+                path, 
+                icon, 
+                component, 
+                parent_id AS "parentId", 
+                show_notification AS "showNotification"
+            FROM System_Menus
+            ORDER BY parent_id, sort_order, menu_id
+        `);
+        
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching menus:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// 2. เพิ่มเมนูใหม่ลง Database (POST)
+app.post('/api/menus', async (req, res) => {
+    const { title, path, icon, component, parentId, showNotification } = req.body;
+    
+    try {
+        const result = await pgPool.query(`
+                INSERT INTO System_Menus (title, path, icon, component, parent_id, show_notification)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                RETURNING menu_id AS id
+            `, 
+            [
+                title, 
+                path || null, 
+                icon || null, 
+                component || null, 
+                parentId || null, 
+                showNotification === false ? 0 : 1
+            ]
+        );
+            
+        res.status(201).json({ 
+            message: 'บันทึกเมนูสำเร็จ', 
+            id: result.rows[0].id 
+        });
+    } catch (err) {
+        console.error('Error saving menu:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// 3. แก้ไขเมนู (PUT)
+app.put('/api/menus/:id', async (req, res) => {
+    const { id } = req.params;
+    const { title, path, icon, component, parentId, showNotification } = req.body;
+    
+    try {
+        await pgPool.query(`
+                UPDATE System_Menus 
+                SET title = $1, path = $2, icon = $3, component = $4, 
+                    parent_id = $5, show_notification = $6
+                WHERE menu_id = $7
+            `, 
+            [
+                title, 
+                path || null, 
+                icon || null, 
+                component || null, 
+                parentId || null, 
+                showNotification === false ? 0 : 1,
+                id
+            ]
+        );
+            
+        res.json({ message: 'อัปเดตเมนูสำเร็จ' });
+    } catch (err) {
+        console.error('Error updating menu:', err);
+        res.status(500).send('Server error');
+    }
+});
+
+// 4. ลบเมนู (DELETE)
+app.delete('/api/menus/:id', async (req, res) => {
+    const { id } = req.params;
+    
+    // 🌟 ใช้ Transaction สำหรับการลบข้อมูลที่เกี่ยวข้องกัน 2 ตาราง
+    const client = await pgPool.connect();
+    try {
+        await client.query('BEGIN');
+        
+        // ลบเมนูลูกก่อน
+        await client.query(`DELETE FROM System_Menus WHERE parent_id = $1`, [id]);
+        // ลบเมนูแม่
+        await client.query(`DELETE FROM System_Menus WHERE menu_id = $1`, [id]);
+        
+        await client.query('COMMIT');
+        res.json({ message: 'ลบเมนูสำเร็จ' });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error('Error deleting menu:', err);
+        res.status(500).send('Server error');
+    } finally {
+        client.release();
+    }
+});
+// ==========================================
+// 🌟 ย้ายไป database ใหม่ และแก้ไขแล้ว
+// 🌟 API สำหรับระบบเมนูอัจฉริยะ (Dynamic Menu)  end
+// ==========================================
+
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`M-Chat Server running on port ${PORT}`));
